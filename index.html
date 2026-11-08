@@ -1,0 +1,1110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>PEB 设计板</title>
+<meta name="theme-color" content="#1F2A2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PEB 设计板">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<style>
+/* 布局：上方工具条；竖屏时画板占上 2/3、文字区占下 1/3；横屏和电脑时文字区在右侧。画纸永远是白色。 */
+:root{
+  --ink:#1F2A2E; --ink2:#5B686C; --ink3:#8A9598; --line:#D3D9D8; --bg:#E7EBEA; --chrome:#F6F7F6; --paper:#FFFFFF;
+  --accent:#0F6F7C; --accentSoft:#D7ECEE;
+  --open:#2E7FD8; --rel:#3A4A50; --call:#C0267A; --claude:#7A4FD0; --guide:#E0389A;
+  --f:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:15px;-webkit-text-size-adjust:100%}
+body{position:fixed;inset:0;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+button,select,input,textarea{font:inherit;color:inherit}
+button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#app{height:100%;display:grid;grid-template-rows:auto 1fr}
+/* ---------- 工具条 ---------- */
+#bar{background:var(--chrome);border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px;padding:6px 8px}
+.brow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#pageRow{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#pageRow::-webkit-scrollbar{display:none}
+.grp{display:flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:10px;background:var(--paper);flex:none}
+.tb{border:0;background:transparent;border-radius:8px;min-height:38px;min-width:44px;padding:0 10px;font-size:14px;cursor:pointer;white-space:nowrap}
+.tb:hover{background:var(--accentSoft)}
+.tb.on{background:var(--accent);color:#fff}
+.tb.k-open.on{background:var(--open)} .tb.k-rel.on{background:var(--rel)} .tb.k-call.on{background:var(--call)}
+.tb:disabled{opacity:.35;cursor:default;background:transparent}
+.tb:focus-visible,.pg:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.lbl{font-size:12px;color:var(--ink2);padding:0 4px;flex:none}
+.pg{border:1px solid var(--line);background:var(--paper);border-radius:8px;min-height:34px;padding:0 10px;font-size:13px;cursor:pointer;white-space:nowrap;flex:none}
+.pg.on{border-color:var(--accent);background:var(--accentSoft);font-weight:600}
+.pg.comp{border-style:dashed}
+.pg.target{border-color:var(--open);border-style:dashed;color:var(--open)}
+.sep{width:1px;align-self:stretch;background:var(--line);flex:none;margin:0 4px}
+.spacer{flex:1 0 8px}
+/* ---------- 主区 ---------- */
+#main{min-height:0;display:grid;grid-template-rows:2fr 1fr}
+@media (orientation:landscape) and (min-width:700px){#main{grid-template-rows:none;grid-template-columns:1fr minmax(300px,32%)}}
+#stage{position:relative;min-height:0;overflow:hidden;background:var(--bg)}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;display:block}
+#cv.panning{cursor:grabbing}
+#ctx{position:absolute;left:10px;top:10px;right:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;pointer-events:none}
+#ctx>*{pointer-events:auto}
+#ctx .msg{background:rgba(31,42,46,.9);color:#fff;font-size:13px;padding:6px 10px;border-radius:8px;pointer-events:none}
+#ctx .msg.focus{background:var(--accent)}
+#ctx .chips{display:flex;flex-wrap:wrap;gap:4px;background:rgba(255,255,255,.95);border:1px solid var(--line);border-radius:10px;padding:3px}
+#ctx .cbtn{border:0;background:transparent;border-radius:7px;min-height:32px;padding:0 10px;font-size:13px;cursor:pointer}
+#ctx .cbtn.on{background:var(--accent);color:#fff}
+#ctx .cbtn.exit{background:var(--ink);color:#fff}
+#selTools{position:absolute;z-index:5;display:flex;gap:2px;padding:2px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:9px;box-shadow:0 4px 12px rgba(20,30,34,.12)}
+#selTools button{border:0;background:transparent;border-radius:7px;min-height:32px;padding:0 9px;font-size:12px;cursor:pointer;white-space:nowrap}
+#selTools button:hover{background:var(--accentSoft)}
+.pop .gapin{display:flex;gap:6px;padding:6px}
+.pop .gapin input{width:90px;border:1px solid var(--line);border-radius:8px;min-height:38px;padding:0 8px;font-size:15px}
+.pop .gapin button{border:0;background:var(--accent);color:#fff;border-radius:8px;padding:0 14px;cursor:pointer}
+#tryBar{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center}
+#tryBar span{background:var(--accent);color:#fff;font-size:13px;padding:6px 10px;border-radius:8px}
+#tryBar button{min-height:38px;border:0;border-radius:8px;background:var(--ink);color:#fff;padding:0 14px;cursor:pointer}
+#zoomBox{position:absolute;right:10px;bottom:10px;display:flex;gap:4px;align-items:center}
+#zoomBox button{min-width:40px;min-height:36px;border:1px solid var(--line);background:var(--paper);border-radius:8px;cursor:pointer}
+#zoomBox span{font-family:var(--mono);font-size:12px;color:var(--ink2);background:rgba(255,255,255,.8);padding:2px 6px;border-radius:6px}
+/* ---------- 文字区 ---------- */
+#panel{min-height:0;background:var(--paper);border-top:1px solid var(--line);display:grid;grid-template-rows:auto auto 1fr auto}
+@media (orientation:landscape) and (min-width:700px){#panel{border-top:0;border-left:1px solid var(--line)}}
+#phead{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+#title{flex:1;min-width:0;border:0;border-bottom:1px dashed transparent;font-weight:600;font-size:16px;background:transparent;padding:4px 0}
+#title:focus{outline:none;border-bottom-color:var(--accent)}
+#saved{font-size:12px;color:var(--ink3);white-space:nowrap}
+#ptabs{display:flex;gap:4px;padding:6px 10px 0;border-bottom:1px solid var(--line)}
+.ptab{border:1px solid var(--line);border-bottom:0;background:var(--chrome);border-radius:8px 8px 0 0;min-height:34px;padding:0 14px;font-size:14px;cursor:pointer}
+.ptab.on{background:var(--paper);font-weight:600;position:relative;top:1px}
+#logicBox{display:grid;gap:8px;padding:10px}
+#logicBox h4{margin:0;font-size:14px;color:var(--ink2);font-weight:600}
+#logicTa{width:100%;min-height:180px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:15px;line-height:1.7;background:var(--paper)}
+#logicTa:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.refs{display:flex;flex-wrap:wrap;gap:4px}
+.refs button{border:1px solid var(--line);background:var(--paper);border-radius:12px;min-height:30px;padding:0 9px;font-size:12px;cursor:pointer}
+.refs button.t-frame{color:#3F6E62}.refs button.t-button{color:#9A5B12}.refs button.t-point{color:#5B4FA0}.refs button.t-line{color:var(--rel)}
+.refs .h{font-size:12px;color:var(--ink3);align-self:center;margin-right:4px}
+#tree{overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:4px 0 12px}
+.fold{display:flex;align-items:center;gap:6px;padding-top:6px;padding-bottom:6px;padding-right:10px;cursor:pointer;font-size:13px;color:var(--ink2);user-select:none}
+.fold b{color:var(--ink);font-weight:600}
+.fold .c{font-family:var(--mono);font-size:12px;color:var(--ink3)}
+.fold .ar{display:inline-block;width:12px;transition:transform .15s}
+.fold.shut .ar{transform:rotate(-90deg)}
+.d1{padding-left:10px}.d2{padding-left:26px}.d3{padding-left:42px}.d4{padding-left:58px}.d5{padding-left:74px}.d6{padding-left:90px}.d7{padding-left:106px}
+.row{display:flex;align-items:center;gap:8px;padding-top:3px;padding-bottom:3px;padding-right:6px;min-height:40px;cursor:pointer;border-left:3px solid transparent}
+.row:hover{background:#F2F5F4}
+.row.sel{background:var(--accentSoft);border-left-color:var(--accent)}
+.row.cur{font-weight:600}
+.row.locked .nm{color:var(--ink2)}
+.num{font-family:var(--mono);font-size:12px;min-width:48px;color:var(--ink2);white-space:nowrap}
+.num.t-frame{color:#3F6E62}.num.t-button{color:#9A5B12}.num.t-point{color:#5B4FA0}.num.t-open{color:var(--open)}.num.t-rel{color:var(--rel)}.num.t-call{color:var(--call)}.num.t-func{color:var(--call);font-weight:700}.num.t-comp{color:#7A5A12}
+.nm{flex:1;min-width:0;border:0;background:transparent;padding:6px 0;font-size:15px}
+.nm:focus{outline:none;border-bottom:1px solid var(--accent)}
+.tag{font-size:11px;color:var(--ink3);white-space:nowrap;border:1px solid var(--line);border-radius:6px;padding:0 5px}
+.tag.cl{color:var(--claude);border-color:var(--claude)}
+.tag.op{color:var(--open);border-color:var(--open)}
+.tag.ca{color:var(--call);border-color:var(--call)}
+.prev{font-size:12px;color:var(--ink3);max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lk{flex:none;border:1px solid transparent;background:transparent;border-radius:6px;min-width:40px;min-height:30px;font-size:12px;color:var(--ink3);cursor:pointer}
+.lk:hover{border-color:var(--line)}
+.lk.on{background:var(--ink);color:#fff}
+.lk.inh{color:var(--ink2);border-color:var(--line);border-style:dashed}
+.detail{margin:0 10px 8px 0;padding:8px 10px;background:#F7F9F8;border:1px solid var(--line);border-radius:8px;display:grid;gap:8px}
+.detail textarea{width:100%;min-height:64px;resize:vertical;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--paper);font-size:14px;line-height:1.5}
+.detail .r{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--ink2)}
+.detail select{border:1px solid var(--line);border-radius:6px;min-height:32px;background:var(--paper);padding:0 6px}
+.chip{border:1px solid var(--line);background:var(--paper);border-radius:14px;min-height:30px;padding:0 10px;font-size:13px;cursor:pointer}
+.chip.on{background:var(--call);border-color:var(--call);color:#fff}
+.sbtn{border:1px solid var(--line);background:var(--paper);border-radius:6px;min-height:32px;padding:0 10px;font-size:13px;cursor:pointer}
+.sbtn.del{color:#B3261E;border-color:#E3B6B2}
+.sbtn.ok{color:var(--claude);border-color:var(--claude)}
+.empty{font-size:12px;color:var(--ink3);padding-top:2px;padding-bottom:6px}
+#addBar{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line);background:var(--chrome)}
+#addIn{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:0 10px;min-height:40px;background:var(--paper);font-size:15px}
+#addIn:focus{outline:2px solid var(--accent);outline-offset:-1px}
+#addBar button{border:0;background:var(--accent);color:#fff;border-radius:8px;padding:0 14px;min-height:40px;cursor:pointer}
+/* ---------- 弹层 ---------- */
+.pop{position:fixed;z-index:30;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(20,30,34,.18);padding:6px;max-height:70vh;overflow:auto;min-width:240px}
+.pop button.mi{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:8px;min-height:40px;padding:0 12px;cursor:pointer;font-size:14px}
+.pop button.mi:hover{background:var(--accentSoft)}
+.pop .mh{font-size:12px;color:var(--ink3);padding:8px 12px 4px}
+.pop hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.pop .lay{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px}
+.pop .lay button{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:6px;cursor:pointer;display:grid;gap:4px;justify-items:center;font-size:12px}
+.pop .lay button:hover{border-color:var(--accent)}
+.pop .lay svg{width:64px;height:48px}
+#veil{position:fixed;inset:0;z-index:40;background:rgba(20,30,34,.35);display:grid;place-items:center;padding:16px}
+#modal{background:var(--paper);border-radius:14px;max-width:460px;width:100%;padding:18px;display:grid;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+#modal h3{margin:0;font-size:17px}
+#modal p{margin:0;color:var(--ink2);line-height:1.6;font-size:14px}
+#modal .btns{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+#modal .btns button{min-height:40px;border-radius:8px;border:1px solid var(--line);background:var(--paper);padding:0 14px;cursor:pointer}
+#modal .btns button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 70px);transform:translateX(-50%);z-index:50;background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+#toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="bar">
+    <div class="brow">
+      <div class="grp" role="group" aria-label="工具">
+        <button class="tb" data-tool="select" title="选择和移动（V）">选择</button>
+        <button class="tb" data-tool="frame" title="连点两下加一个框（F）">框</button>
+        <button class="tb" data-tool="button" title="连点两下加一个按键（B）">按键</button>
+        <button class="tb" data-tool="point" title="连点两下加一个点">点</button>
+        <button class="tb" data-tool="pen" title="手画（P）">笔</button>
+        <button class="tb" data-tool="eraser" title="擦掉手画的笔画">橡皮</button>
+      </div>
+      <div class="grp" role="group" aria-label="连线">
+        <button class="tb k-open" data-line="open" title="开启线：点这个，打开那个">开启线</button>
+        <button class="tb k-rel" data-line="rel" title="关系线：两个东西之间的关系">关系线</button>
+        <button class="tb k-call" data-line="call" title="调用线：这个东西调用哪些功能">调用线</button>
+      </div>
+      <div class="grp" role="group" aria-label="图层">
+        <button class="tb" data-layer="1">层1</button>
+        <button class="tb" data-layer="2">层2</button>
+        <button class="tb" data-layer="3">层3</button>
+        <button class="tb" id="layHide" title="隐藏或显示当前层">隐藏</button>
+        <button class="tb" id="layLock" title="锁住当前层">锁层</button>
+      </div>
+      <div class="grp" role="group" aria-label="辅助">
+        <button class="tb" id="pageLock" title="固定页面：拖页面外面不会移动画面；页面里的东西照样能拖，照样能缩放">固定页面</button>
+        <button class="tb" id="snapBtn" title="拖动时自动对齐别的东西的边和中线">吸附</button>
+        <button class="tb" id="gridBtn" title="显示网格，并对齐网格">网格</button>
+        <button class="tb" id="layoutBtn" title="一键铺好常用布局">布局</button>
+        <button class="tb" id="partsBtn" title="现成零件和你做的组件">零件</button>
+      </div>
+      <div class="grp">
+        <button class="tb" id="tryBtn" title="锁住全部，点按键试用">试用</button>
+      </div>
+      <div class="grp">
+        <button class="tb" id="undoBtn" title="撤销（Ctrl+Z）">撤销</button>
+        <button class="tb" id="redoBtn" title="重做（Ctrl+Y）">重做</button>
+        <button class="tb" id="delBtn" title="删除选中的（Delete）">删除</button>
+      </div>
+      <div class="grp">
+        <button class="tb" id="fileBtn">文件</button>
+      </div>
+    </div>
+    <div class="brow" id="pageRow"></div>
+  </header>
+  <div id="main">
+    <div id="stage">
+      <svg id="cv" xmlns="http://www.w3.org/2000/svg" aria-label="画板">
+        <defs id="defs"></defs>
+        <g id="world"></g>
+        <g id="live"></g>
+      </svg>
+      <div id="ctx"></div>
+      <div id="selTools" hidden><button id="gapNow" title="预定间距">间距 16</button><button id="gapCustom" title="自定义间距">自定义</button><button id="dupBtn" title="复制一份放旁边（Ctrl+D）">复制一份</button></div>
+      <div id="tryBar" hidden><span>试用中：点按键看效果</span><button id="tryBack" hidden>返回</button><button id="tryExit">退出试用</button></div>
+      <div id="zoomBox"><span id="zPct">100%</span><button id="zOut" aria-label="缩小">−</button><button id="zFit">整页</button><button id="zIn" aria-label="放大">＋</button></div>
+    </div>
+    <aside id="panel">
+      <div id="phead"><input id="title" aria-label="稿件名字"><span id="saved"></span></div><div id="ptabs"><button class="ptab on" data-ptab="items">栏</button><button class="ptab" data-ptab="logic">逻辑说明</button></div>
+      <div id="tree"></div>
+      <form id="addBar" autocomplete="off"><input id="addIn" enterkeyhint="done" placeholder="新加一栏：框 登录区 / 按键 搜索 / 点 / 线 / 页面 设置 / 组件 侧栏 / 功能 翻译" aria-label="新加一栏"><button type="submit">加入</button></form>
+    </aside>
+  </div>
+</div>
+<input type="file" id="fileIn" hidden>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   PEB 设计板 v2.1 —— 单文件程序。数据格式见导出包里的《给AI的格式说明》。
+   ===================================================================== */
+const APP_VER="2.2.0";
+const FORMAT="peb-design-board";
+const SCREENS=[
+ {k:"ipadv",n:"iPad 竖 820×1180",w:820,h:1180},
+ {k:"ipadh",n:"iPad 横 1180×820",w:1180,h:820},
+ {k:"v1080",n:"竖屏副屏 1080×1920",w:1080,h:1920},
+ {k:"v1080t",n:"竖屏 去任务栏 1080×1872",w:1080,h:1872},
+ {k:"h1920",n:"横屏 1920×1080",w:1920,h:1080},
+ {k:"h1920t",n:"横屏 去任务栏 1920×1032",w:1920,h:1032},
+ {k:"peb",n:"PEB 现在窗口 1280×900",w:1280,h:900},
+ {k:"phone",n:"手机 390×844",w:390,h:844},
+ {k:"logic",n:"逻辑图大画布 3000×2000",w:3000,h:2000},
+ {k:"c-side",n:"组件：侧栏 360×900",w:360,h:900},
+ {k:"c-panel",n:"组件：面板 600×800",w:600,h:800},
+ {k:"c-card",n:"组件：卡片 400×300",w:400,h:300},
+ {k:"c-dialog",n:"组件：弹窗 640×420",w:640,h:420},
+ {k:"c-bar",n:"组件：横条 1000×120",w:1000,h:120}
+];
+/* 默认大小：框按"所在的框或页面"的比例；按键按字号单位 */
+const SPLITS=[1,2,3,4,5,6,7];const GAPS=[0,4,8,12,16,20,24,32,40,48];
+const BTN_SIZES=[["小",5,2.2],["中",7,2.6],["大",10,3.2],["宽条",0,2.8],["方形",2.8,2.8]];
+const LAYOUTS=[
+ ["顶栏 + 内容",[["顶栏",0,0,1,.1],["内容",0,.1,1,1]]],
+ ["侧边栏 + 内容",[["侧边栏",0,0,.26,1],["内容",.26,0,1,1]]],
+ ["顶栏 + 侧边栏 + 内容",[["顶栏",0,0,1,.1],["侧边栏",0,.1,.26,1],["内容",.26,.1,1,1]]],
+ ["上中下",[["顶栏",0,0,1,.1],["内容",0,.1,1,.9],["底栏",0,.9,1,1]]],
+ ["上下两块",[["上",0,0,1,.5],["下",0,.5,1,1]]],
+ ["左右两块",[["左",0,0,.5,1],["右",.5,0,1,1]]],
+ ["三列",[["左",0,0,1/3,1],["中",1/3,0,2/3,1],["右",2/3,0,1,1]]],
+ ["2×2 宫格",[["左上",0,0,.5,.5],["右上",.5,0,1,.5],["左下",0,.5,.5,1],["右下",.5,.5,1,1]]],
+ ["列表 5 行",[0,1,2,3,4].map(i=>["第"+(i+1)+"行",0,i/5,1,(i+1)/5])]
+];
+const STS={"":"未标",have:"现有",change:"要改",new:"新建",later:"以后",tbd:"未定"};
+const STC={have:"#3F7D5C",change:"#B07A1E",new:"#2D6FB0",later:"#7C7F86",tbd:"#9A4FA0"};
+const RK={"":"一般关系",contain:"包含",affect:"影响",cross:"跨大区调用",share:"共享知识库"};
+const RKC={"":"#3A4A50",contain:"#3F8F5C",affect:"#D08420",cross:"#A855B5",share:"#2A9D9D"};
+const KN={open:"开启线",rel:"关系线",call:"调用线"};
+const KP={open:"开",rel:"关",call:"调"};
+const PENC=["#1F2A2E","#D9387A","#2E7FD8","#2E9E6B","#E0A030"];
+const PARTS=[
+ ["逻辑层级",[["电脑（PEB）","f"],["大区","f"],["项目","f"],["知识库","f"],["功能","f"],["资料 / 文件","f"]]],
+ ["侧边栏",[["侧边栏","f"],["子菜单","f"],["目录","b"],["大区","b"],["功能","b"],["文件","b"],["翻译","b"],["设置","b"]]],
+ ["导入",[["导入","f"],["导入文件","b"],["导入整个文件夹","b"],["取消导入","b"],["导入结果明细","b"]]],
+ ["资料管理",[["文件（资料列表）","f"],["文件夹导航","f"],["刷新目录","b"],["分组","b"],["筛选","b"],["清除筛选","b"],["上一批","b"],["下一批","b"],["打开原文","b"],["重新解析PDF","b"]]],
+ ["搜索",[["搜索","f"],["检索结果","f"],["搜索框","b"],["搜索","b"],["用AI拆问题","b"],["打开结果","b"],["导出 AI 补词记录","b"]]],
+ ["阅读",[["阅读","f"],["出处","f"],["关闭阅读","b"],["全屏","b"],["上一页","b"],["下一页","b"],["页码+跳转","b"],["文内目录","b"],["关联到项目","b"]]],
+ ["翻译",[["翻译浮层","f"],["翻译","b"],["译文对照区","f"]]],
+ ["简介卡",[["简介卡","f"],["打开简介卡总目录","b"],["生成/重新生成","b"],["抽查导出","b"],["查看简介卡","b"]]],
+ ["项目",[["项目","f"],["资料关联","f"],["建立项目","b"],["切换当前项目","b"]]],
+ ["AI 确认窗",[["AI 确认窗","f"],["确认发送","b"],["取消","b"],["重试","b"]]],
+ ["设置",[["设置","f"],["启用AI","b"],["每月费用上限","b"],["Key","b"],["测试连接","b"],["保存设置","b"]]],
+ ["系统",[["状态栏","f"],["消息条","f"],["完整退出","b"]]]
+];
+/* ---------- 小工具 ---------- */
+const $=s=>document.querySelector(s);
+const uid=()=>Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const nowISO=()=>new Date().toISOString();
+const isIPad=/iPad/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+const isIOS=isIPad||/iPhone|iPod/.test(navigator.userAgent);
+const DEVICE=isIPad?"iPad":(isIOS?"iPhone":"电脑");
+const LETTER=i=>{let s="";i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s};
+function fmtTime(iso){if(!iso)return"—";const d=new Date(iso);const p=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())}
+function toast(t,ms){const el=$("#toast");el.textContent=t;el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),ms||1800)}
+
+/* ---------- 本机保存（IndexedDB，失败时用 localStorage） ---------- */
+const store={db:null,
+  open(){return new Promise(r=>{try{const q=indexedDB.open("peb-design-board",1);q.onupgradeneeded=()=>q.result.createObjectStore("kv");q.onsuccess=()=>{this.db=q.result;r()};q.onerror=()=>r()}catch(e){r()}})},
+  get(k){return new Promise(r=>{if(!this.db){try{r(JSON.parse(localStorage.getItem("pebb:"+k)))}catch(e){r(null)}return}
+    try{const q=this.db.transaction("kv").objectStore("kv").get(k);q.onsuccess=()=>r(q.result==null?null:q.result);q.onerror=()=>r(null)}catch(e){r(null)}})},
+  set(k,v){return new Promise(r=>{if(!this.db){try{localStorage.setItem("pebb:"+k,JSON.stringify(v))}catch(e){}r();return}
+    try{const t=this.db.transaction("kv","readwrite");t.objectStore("kv").put(v,k);t.oncomplete=()=>r();t.onerror=()=>r()}catch(e){r()}})}
+};
+if(navigator.storage&&navigator.storage.persist){try{navigator.storage.persist()}catch(e){}}
+
+/* ---------- 数据 ---------- */
+function newPage(name,scrKey,kind){const s=SCREENS.find(x=>x.k===scrKey)||SCREENS[0];return{id:uid(),kind:kind||"page",name:name||"",note:"",scr:s.k,w:s.w,h:s.h,items:[],strokes:[],by:"",lk:false,logic:""}}
+function newLayers(){return[{hide:false,lock:false},{hide:false,lock:false},{hide:false,lock:false}]}
+function newDoc(){const p=newPage("页面 1","ipadv");return{format:FORMAT,ver:2,id:uid(),gap:16,title:"新设计稿",createdAt:nowISO(),savedAt:nowISO(),savedOn:DEVICE,edits:0,exportedAt:"",funcs:[],pages:[p],layers:newLayers()}}
+function normalize(d){
+  if(!d||d.format!==FORMAT)throw new Error("这不是 PEB 设计板的稿件文件");
+  d.id=d.id||uid();d.funcs=Array.isArray(d.funcs)?d.funcs:[];d.pages=Array.isArray(d.pages)&&d.pages.length?d.pages:[newPage("页面 1")];
+  d.layers=Array.isArray(d.layers)&&d.layers.length===3?d.layers:newLayers();
+  d.funcs.forEach(f=>{f.id=f.id||uid();f.name=f.name||"";f.note=f.note||"";f.by=f.by||"";f.comp=f.comp||""});
+  if(!d.pages.some(p=>p.kind!=="comp"))d.pages.unshift(newPage("页面 1"));
+  d.pages.forEach(p=>{p.id=p.id||uid();p.kind=p.kind==="comp"?"comp":"page";p.items=Array.isArray(p.items)?p.items:[];p.strokes=Array.isArray(p.strokes)?p.strokes:[];p.note=p.note||"";p.name=p.name||"";p.by=p.by||"";p.lk=!!p.lk;p.logic=p.logic||"";
+    const s=SCREENS.find(x=>x.k===p.scr);p.w=+p.w||(s?s.w:820);p.h=+p.h||(s?s.h:1180);if(!s){const m=SCREENS.find(x=>x.w===p.w&&x.h===p.h);p.scr=m?m.k:"custom"}
+    p.items.forEach(it=>{it.id=it.id||uid();it.L=clamp(+it.L||1,1,3);it.name=it.name||"";it.note=it.note||"";it.by=it.by||"";it.lk=!!it.lk;
+      if(it.t==="line"){it.k=["open","rel","call"].includes(it.k)?it.k:"rel";it.calls=Array.isArray(it.calls)?it.calls:[];it.rk=it.rk||"";it.b=it.b||null;it.bp=it.bp||null}
+      else{it.t=["frame","button","point"].includes(it.t)?it.t:"frame";it.x=+it.x||0;it.y=+it.y||0;if(it.t!=="point"){it.w=Math.max(16,+it.w||100);it.h=Math.max(12,+it.h||60)}it.st=it.st||"";it.ref=it.ref||""}});
+    p.strokes.forEach(s=>{s.id=s.id||uid();s.L=clamp(+s.L||1,1,3);s.pts=Array.isArray(s.pts)?s.pts:[]});
+  });
+  const pids=new Set(d.pages.map(x=>x.id));
+  d.pages.forEach(p=>{const ids=new Set(p.items.filter(i=>i.t!=="line").map(i=>i.id));
+    p.items=p.items.filter(i=>i.t!=="line"||(ids.has(i.a)&&(i.k==="call"||ids.has(i.b)||pids.has(i.bp))));
+    p.items.forEach(i=>{if(i.ref&&!d.pages.some(x=>x.id===i.ref&&x.kind==="comp"))i.ref=""})});
+  d.gap=Number.isFinite(+d.gap)&&d.gap!==""?+d.gap:16;d.title=d.title||"设计稿";d.edits=+d.edits||0;return d}
+
+let doc=newDoc();
+let pageId=doc.pages[0].id;
+const views={};
+let tool="select",lineKind="rel",curLayer=1,pageLock=false,snapOn=true,gridOn=false,tryMode=false,tryOpen=new Set(),tryPress=null,tryHist=[];
+let sel=null,linePick=null,focusId=null,focusView=null,placeComp=null;
+let sizeKey={fw:3,fh:4,button:"中"};
+let undoStack=[],redoStack=[],lastSnap="";
+let penColor=PENC[0],spaceDown=false,lastTap=null;
+let shut=new Set();
+const page=()=>doc.pages.find(p=>p.id===pageId)||doc.pages[0];
+const items=()=>page().items;
+const byId=(id,p)=>(p||page()).items.find(i=>i.id===id);
+const isNode=i=>!!i&&i.t!=="line";
+const lsOf=p=>clamp(p.w/55,14,46);
+const LS=()=>lsOf(page());
+const funcLetter=id=>{const i=doc.funcs.findIndex(f=>f.id===id);return i<0?"?":LETTER(i)};
+const isComp=p=>p&&p.kind==="comp";
+const pagesOfKind=k=>doc.pages.filter(p=>(p.kind||"page")===k);
+function pageLabel(p){const list=pagesOfKind(p.kind||"page");return(isComp(p)?"组件":"页")+(list.indexOf(p)+1)}
+function pageNo(id){const p=doc.pages.find(x=>x.id===id);return p?pageLabel(p):"?"}
+
+/* ---------- 编号（每次按顺序算，删掉后自动重排） ---------- */
+function numbering(p){
+  p=p||page();const m={},frames=p.items.filter(i=>i.t==="frame");
+  const kids=pid=>frames.filter(f=>f.p===pid);
+  const walk=(pid,prefix)=>kids(pid).forEach((f,i)=>{const n=prefix+"."+(i+1);m[f.id]="框"+n;walk(f.id,n)});
+  frames.filter(f=>!f.p||!frames.some(g=>g.id===f.p)).forEach((f,i)=>{m[f.id]="框"+(i+1);walk(f.id,String(i+1))});
+  let b=0,pt=0,c={open:0,rel:0,call:0};
+  p.items.forEach(i=>{if(i.t==="button")m[i.id]="键"+(++b);else if(i.t==="point")m[i.id]="点"+(++pt);else if(i.t==="line")m[i.id]=KP[i.k]+(++c[i.k])});
+  return m}
+
+/* ---------- 几何 ---------- */
+function bbox(i,p){if(i.t==="point"){const r=lsOf(p||page())*.6;return{x:i.x-r,y:i.y-r,w:2*r,h:2*r}}return{x:i.x,y:i.y,w:i.w,h:i.h}}
+function center(i,p){const b=bbox(i,p);return{x:b.x+b.w/2,y:b.y+b.h/2}}
+function clipTo(i,from,p){const c=center(i,p);if(i.t==="point"){const r=lsOf(p||page())*.6,dx=from.x-c.x,dy=from.y-c.y,d=Math.hypot(dx,dy)||1;return{x:c.x+dx/d*r,y:c.y+dy/d*r}}
+  const b=bbox(i,p),dx=from.x-c.x,dy=from.y-c.y;if(!dx&&!dy)return c;const s=Math.min(b.w/2/Math.abs(dx||1e-9),b.h/2/Math.abs(dy||1e-9),1);return{x:c.x+dx*s,y:c.y+dy*s}}
+const contains=(f,pt)=>pt.x>=f.x&&pt.x<=f.x+f.w&&pt.y>=f.y&&pt.y<=f.y+f.h;
+function ancestors(it,p){p=p||page();const out=[];let c=it,g=0;while(c&&c.p&&g++<99){c=p.items.find(x=>x.id===c.p);if(c)out.push(c)}return out}
+function isAncestor(aId,id,p){const it=byId(id,p);return!!it&&ancestors(it,p).some(a=>a.id===aId)}
+/* 谁在谁里面：按位置自动算，取最小的那个框。上层的东西不会被算进看不见的下层框里。 */
+function recomputeParents(p){
+  p=p||page();const frames=p.items.filter(i=>i.t==="frame");
+  const anc=(aId,id)=>{let c=frames.find(x=>x.id===id),g=0;while(c&&c._p&&g++<99){if(c._p===aId)return true;c=frames.find(x=>x.id===c._p)}return false};
+  const find=(pt,L,selfId,selfArea)=>{let best=null,ba=Infinity;frames.forEach(f=>{if(f.id===selfId||f.L>L)return;if(selfArea&&f.w*f.h<=selfArea)return;if(selfId&&anc(selfId,f.id))return;if(contains(f,pt)){const a=f.w*f.h;if(a<ba){ba=a;best=f}}});return best?best.id:null};
+  frames.forEach(f=>f._p=null);
+  [...frames].sort((a,b)=>b.w*b.h-a.w*a.h).forEach(f=>{f._p=find(center(f,p),f.L,f.id,f.w*f.h)});
+  frames.forEach(f=>{f.p=f._p;delete f._p});
+  p.items.forEach(i=>{if(i.t==="button"||i.t==="point")i.p=find(center(i,p),i.L,null)});
+  p.strokes.forEach(s=>{const b=strokeBox(s);s.p=find({x:b.x+b.w/2,y:b.y+b.h/2},s.L,null)});
+}
+function strokeBox(s){let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;for(let k=0;k<s.pts.length;k+=2){x1=Math.min(x1,s.pts[k]);x2=Math.max(x2,s.pts[k]);y1=Math.min(y1,s.pts[k+1]);y2=Math.max(y2,s.pts[k+1])}return{x:x1,y:y1,w:x2-x1,h:y2-y1}}
+function descendants(id,p){p=p||page();const out=[];const walk=pid=>p.items.forEach(i=>{if(i.t!=="line"&&i.p===pid){out.push(i);if(i.t==="frame")walk(i.id)}});walk(id);return out}
+/* 锁：自己锁了、所在的框锁了、页面锁了、图层锁了，都算锁住 */
+function lockReason(it,p){p=p||page();if(p.lk)return"页面已锁";if(it.lk)return"已锁";if(isNode(it)){if(doc.layers[it.L-1].lock)return"层"+it.L+"已锁";const a=ancestors(it,p).find(x=>x.lk);if(a)return"所在的框已锁"}else{const a=byId(it.a,p);if(a&&a.lk)return"起点已锁"}return""}
+const isLocked=(it,p)=>!!lockReason(it,p);
+const inFocus=it=>!focusId||it.id===focusId||isAncestor(focusId,it.id);
+const pageRect=p=>({x:0,y:0,w:(p||page()).w,h:(p||page()).h});
+/* 双击位置所在的容器：最小的、包含这个点的框（框内编辑时只在那个框里找） */
+function containerAt(pt){const p=page();let best=null,ba=Infinity;p.items.forEach(f=>{if(f.t!=="frame"||f.ref||f.L>curLayer||!layerShown(f.L))return;if(focusId&&!inFocus(f))return;if(contains(f,pt)){const a=f.w*f.h;if(a<ba){ba=a;best=f}}});return best}
+
+/* ---------- 撤销 / 保存 ---------- */
+const snap=()=>JSON.stringify([doc.title,doc.funcs,doc.pages,doc.layers]);
+function commit(){const s=snap();if(s===lastSnap)return;undoStack.push(lastSnap);if(undoStack.length>120)undoStack.shift();redoStack=[];lastSnap=s;doc.edits++;doc.savedAt=nowISO();doc.savedOn=DEVICE;scheduleSave();updateUndo()}
+function restore(s){const a=JSON.parse(s);doc.title=a[0];doc.funcs=a[1];doc.pages=a[2];doc.layers=a[3];lastSnap=s;if(!doc.pages.some(p=>p.id===pageId))pageId=doc.pages[0].id;if(sel&&sel.k==="item"&&!byId(sel.id))sel=null;if(focusId&&!byId(focusId))focusId=null;doc.savedAt=nowISO();scheduleSave();render()}
+function doUndo(){if(!undoStack.length)return;redoStack.push(lastSnap);restore(undoStack.pop());updateUndo()}
+function doRedo(){if(!redoStack.length)return;undoStack.push(lastSnap);restore(redoStack.pop());updateUndo()}
+function updateUndo(){$("#undoBtn").disabled=!undoStack.length;$("#redoBtn").disabled=!redoStack.length}
+let saveT=null;
+function scheduleSave(){clearTimeout(saveT);$("#saved").textContent="保存中…";saveT=setTimeout(async()=>{await store.set("doc",doc);await store.set("ui",{pageId,curLayer,snapOn,gridOn});$("#saved").textContent="已自动保存 "+fmtTime(doc.savedAt).slice(11)},350)}
+
+/* ---------- 视图 ---------- */
+const cv=$("#cv"),world=$("#world"),live=$("#live");
+function view(){const p=page();if(!views[p.id])fitView();return views[p.id]}
+function fitRect(r,padTop){const v=views[page().id]||(views[page().id]={x:0,y:0,z:1}),c=cv.getBoundingClientRect(),W=c.width||800,H=c.height||600;const pt=padTop==null?50:padTop;
+  const z=clamp(Math.min((W-40)/r.w,(H-pt-50)/r.h),.03,8);v.z=z;v.x=(W-r.w*z)/2-r.x*z;v.y=pt+(H-pt-50-r.h*z)/2-r.y*z}
+function fitView(){const p=page(),ls=LS(),libW=doc.funcs.length&&!isComp(p)?ls*17:0;views[p.id]=views[p.id]||{x:0,y:0,z:1};fitRect({x:-ls,y:-ls*2,w:p.w+libW+ls*2,h:p.h+ls*3})}
+function applyView(){const v=view(),t=`translate(${v.x},${v.y}) scale(${v.z})`;world.setAttribute("transform",t);live.setAttribute("transform",t);placeSelTools();$("#zPct").textContent=Math.round(v.z*100)+"%"}
+function toWorld(cx,cy){const r=cv.getBoundingClientRect(),v=view();return{x:(cx-r.left-v.x)/v.z,y:(cy-r.top-v.y)/v.z}}
+function zoomAt(f,cx,cy){const r=cv.getBoundingClientRect(),v=view(),z=clamp(v.z*f,.03,8);const wx=(cx-r.left-v.x)/v.z,wy=(cy-r.top-v.y)/v.z;v.x=cx-r.left-wx*z;v.y=cy-r.top-wy*z;v.z=z;applyView();if(sel)renderCanvas()}
+function centerOn(it){const r=cv.getBoundingClientRect(),v=view(),b=bbox(it);const sx=b.x*v.z+v.x,sy=b.y*v.z+v.y,sw=b.w*v.z,sh=b.h*v.z;
+  if(sx>=0&&sy>=0&&sx+sw<=r.width&&sy+sh<=r.height)return;v.x=r.width/2-(b.x+b.w/2)*v.z;v.y=r.height/2-(b.y+b.h/2)*v.z;applyView()}
+function visibleCenter(){const r=cv.getBoundingClientRect();return toWorld(r.left+r.width/2,r.top+r.height/2)}
+
+/* ---------- 试用：哪些东西一开始是关着的 ---------- */
+function openTargets(p){p=p||page();const s=new Set();p.items.forEach(l=>{if(l.t==="line"&&l.k==="open"&&l.b)s.add(l.b)});return s}
+function needsOpen(c,p,tg){if(tg.has(c.id))return true;if(c.L>1){const par=c.p&&p.items.find(x=>x.id===c.p);return!(par&&par.L>1)}return false}
+function visibleInTry(i,p,opened){p=p||page();const tg=openTargets(p);const chain=isNode(i)?[i,...ancestors(i,p)]:[];for(const c of chain){if(needsOpen(c,p,tg)&&!opened.has(c.id))return false}return true}
+function strokeVisibleInTry(s,p,opened){if(!s.p)return s.L===1;const f=p.items.find(x=>x.id===s.p);return f?visibleInTry(f,p,opened):s.L===1}
+function layerShown(L){return!doc.layers[L-1].hide}
+
+/* ---------- 画板绘制 ---------- */
+function markerDefs(){const cols={open:"#2E7FD8",call:"#C0267A",sel:"#0F6F7C"};Object.keys(RKC).forEach(k=>cols["r"+(k||"0")]=RKC[k]);
+  return Object.entries(cols).map(([k,c])=>`<marker id="ar-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${c}"/></marker>`).join("")+
+  `<filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#1F2A2E" flood-opacity=".18"/></filter>`}
+/* opt.exp=导出图片；opt.inst=画组件实例（不能点、不画线） */
+function drawPage(p,opt){
+  opt=opt||{};const exp=!!opt.exp,inst=opt.inst||0,liveMode=!exp&&!inst;
+  const N=numbering(p),ls=lsOf(p),out=[];
+  const tm=liveMode&&tryMode;
+  const selId=liveMode&&sel&&sel.k==="item"?sel.id:null,selFunc=liveMode&&sel&&sel.k==="func"?sel.id:null;
+  const showOpen=exp||(liveMode&&!tryMode&&tool==="line");
+  const empty=new Set();
+  const vis=i=>inst?visibleInTry(i,p,empty):exp?true:(tm?visibleInTry(i,p,tryOpen):layerShown(i.L));
+  const svis=s=>inst?strokeVisibleInTry(s,p,empty):exp?true:(tm?strokeVisibleInTry(s,p,tryOpen):layerShown(s.L));
+  const did=i=>liveMode?` data-id="${i.id}"`:"";
+  const dim=i=>{if(!liveMode||tm)return"";if(focusId&&isNode(i)&&!inFocus(i))return' opacity=".18" pointer-events="none"';return i.L!==curLayer?' opacity=".45"':""};
+  const focusDimStroke=s=>liveMode&&!tm&&focusId&&!(s.p&&(s.p===focusId||isAncestor(focusId,s.p)))?' opacity=".18"':"";
+  const tg=openTargets(p);
+  if(!inst)out.push(`<text x="0" y="${-ls*.6}" font-size="${ls*.9}" fill="#5B686C">${pageLabel(p)}  ${esc(p.name)}  ·  ${p.w}×${p.h}${p.lk?"  ·  已锁":""}${p.by?"  ·  Claude 提议":""}</text>`);
+  out.push(`<rect x="0" y="0" width="${p.w}" height="${p.h}" fill="#FFFFFF" stroke="${p.by?"#7A4FD0":(isComp(p)?"#B08A3A":"#C9D0CF")}" stroke-width="${ls*.08}"${p.by||isComp(p)?` stroke-dasharray="${ls*.5} ${ls*.3}"`:""}/>`);
+  if(liveMode&&gridOn&&!tm){const g=gridStep(p);let d="";for(let x=g;x<p.w;x+=g)d+=`M${x},0V${p.h}`;for(let y=g;y<p.h;y+=g)d+=`M0,${y}H${p.w}`;out.push(`<path d="${d}" stroke="#DCE6E4" stroke-width="${Math.max(.5,ls*.04)}" fill="none" pointer-events="none"/>`)}
+  p.strokes.forEach(s=>{if(!svis(s))return;out.push(`<path d="${strokePath(s.pts)}" fill="none" stroke="${s.c||"#1F2A2E"}" stroke-width="${s.w||3}" stroke-linecap="round" stroke-linejoin="round"${liveMode&&!tm&&s.L!==curLayer?' opacity=".45"':""}${focusDimStroke(s)} pointer-events="none"/>`)});
+  const depth=i=>ancestors(i,p).length;
+  p.items.filter(i=>i.t==="frame"&&vis(i)).sort((a,b)=>a.L-b.L||depth(a)-depth(b)).forEach(f=>{
+    const cl=f.by==="claude",pop=f.L>1||(tm&&tg.has(f.id)),lk=liveMode&&!tm&&isLocked(f,p),isF=liveMode&&f.id===focusId;
+    let body=`<rect x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" rx="${ls*.25}" fill="${pop?"#FFFFFF":(f.ref?"#FFFDF6":"rgba(15,111,124,.035)")}" stroke="${cl?"#7A4FD0":(isF?"#0F6F7C":(pop?"#5B686C":(f.ref?"#B08A3A":"#8FA3A0")))}" stroke-width="${ls*(isF?.2:pop?.12:.08)}"${cl||f.ref?` stroke-dasharray="${ls*.4} ${ls*.25}"`:""}${pop?` filter="url(#sh)"`:""}/>`;
+    if(f.ref&&inst<2){const c=doc.pages.find(x=>x.id===f.ref);if(c){const s=Math.min(f.w/c.w,f.h/c.h),ox=f.x+(f.w-c.w*s)/2,oy=f.y+(f.h-c.h*s)/2;body+=`<g transform="translate(${ox},${oy}) scale(${s})" pointer-events="none">${drawPage(c,{inst:inst+1})}</g>`}}
+    if(!tm||!f.ref)body+=`<text x="${f.x+ls*.4}" y="${f.y+ls*1.1}" font-size="${ls*.8}" fill="#3F6E62" pointer-events="none"><tspan font-weight="700">${N[f.id]}</tspan>${f.L>1?` <tspan fill="#8A9598">层${f.L}</tspan>`:""} ${esc(f.name)}${f.ref?` <tspan fill="#7A5A12">[${esc(pageNo(f.ref))} ${esc((doc.pages.find(x=>x.id===f.ref)||{}).name||"")}]</tspan>`:""}${f.st?` <tspan fill="${STC[f.st]}">[${STS[f.st]}]</tspan>`:""}${lk?` <tspan fill="#8A9598">· 锁</tspan>`:""}${cl?` <tspan fill="#7A4FD0">Claude</tspan>`:""}</text>`;
+    out.push(`<g${did(f)}${dim(f)}>${body}</g>`)});
+  p.items.filter(i=>i.t==="button"&&vis(i)).sort((a,b)=>a.L-b.L).forEach(b=>{const cl=b.by==="claude",fs=Math.min(ls*.85,b.h*.42);
+    const opens=p.items.filter(l=>l.t==="line"&&l.k==="open"&&l.a===b.id);
+    const isOn=tm&&opens.some(l=>l.b&&tryOpen.has(l.b)),isPress=tm&&tryPress===b.id,lk=liveMode&&!tm&&isLocked(b,p);
+    const fill=isPress?"#C98A2E":isOn?"#F2C77E":(cl?"#F1ECFB":"#FFF4E5"),dy=isPress?ls*.12:0;
+    out.push(`<g${did(b)}${dim(b)}><rect x="${b.x}" y="${b.y+dy}" width="${b.w}" height="${b.h}" rx="${Math.min(b.h/2,ls*.5)}" fill="${fill}" stroke="${cl?"#7A4FD0":"#C98A2E"}" stroke-width="${ls*(isOn?.16:.09)}"${cl?` stroke-dasharray="${ls*.4} ${ls*.25}"`:""}${tm&&!isPress?` filter="url(#sh)"`:""}/>`+
+      `<text x="${b.x+b.w/2}" y="${b.y+b.h/2+fs*.35+dy}" font-size="${fs}" text-anchor="middle" fill="${isPress?"#fff":"#5A3A0A"}" pointer-events="none">${esc(b.name||"按键")}</text>`+
+      (tm||inst?"":`<text x="${b.x+ls*.15}" y="${b.y-ls*.25}" font-size="${ls*.6}" font-weight="700" fill="#9A5B12" pointer-events="none">${N[b.id]}${b.L>1?" 层"+b.L:""}${b.st?` [${STS[b.st]}]`:""}${lk?" · 锁":""}</text>`)+`</g>`)});
+  p.items.filter(i=>i.t==="point"&&vis(i)).forEach(pt=>{const r=ls*.6,cl=pt.by==="claude";
+    out.push(`<g${did(pt)}${dim(pt)}><circle cx="${pt.x}" cy="${pt.y}" r="${r*1.8}" fill="transparent"/><circle cx="${pt.x}" cy="${pt.y}" r="${r}" fill="${cl?"#7A4FD0":"#5B4FA0"}"/>`+
+      `<text x="${pt.x}" y="${pt.y+r*.38}" font-size="${r}" text-anchor="middle" fill="#fff" font-weight="700" pointer-events="none">${N[pt.id].slice(1)}</text>`+
+      (pt.name?`<text x="${pt.x+r*1.4}" y="${pt.y+r*.38}" font-size="${ls*.75}" fill="#5B4FA0" pointer-events="none">${esc(pt.name)}</text>`:"")+`</g>`)});
+  if(!inst&&(!tm||exp)){
+    const linePE=liveMode&&tool==="line"?' pointer-events="none"':"";
+    p.items.filter(i=>i.t==="line").forEach(l=>{const a=p.items.find(x=>x.id===l.a);if(!a||(!exp&&!vis(a)))return;
+      if(l.k==="open"&&!showOpen&&l.id!==selId&&l.a!==selId)return;
+      if(liveMode&&focusId&&!inFocus(a))return;
+      const isSel=l.id===selId,col=l.k==="open"?"#2E7FD8":l.k==="call"?"#C0267A":RKC[l.rk||""];const mk=isSel?"sel":(l.k==="rel"?"r"+(l.rk||"0"):l.k);
+      const sw=ls*(isSel?.22:.12),dash=l.k==="rel"?"":` stroke-dasharray="${ls*.45} ${ls*.3}"`,stroke=isSel?"#0F6F7C":col;let d,lx,ly,label=N[l.id];
+      if(l.k==="call"||(l.k==="open"&&l.bp)){const ab=bbox(a,p),s={x:ab.x+ab.w,y:ab.y+ab.h/2},e={x:s.x+ls*3.2,y:s.y};d=`M${s.x},${s.y}L${e.x},${e.y}`;lx=e.x+ls*.3;ly=e.y+ls*.3;
+        label+=l.k==="call"?(" → "+(l.calls.length?l.calls.map(funcLetter).join("·"):"（选功能）")):(" → "+pageNo(l.bp)+" "+((doc.pages.find(x=>x.id===l.bp)||{}).name||""));}
+      else{const b=p.items.find(x=>x.id===l.b);if(!b||(!exp&&!vis(b)))return;const ca=center(a,p),cb=center(b,p),s=clipTo(a,cb,p),e=clipTo(b,ca,p);d=`M${s.x},${s.y}L${e.x},${e.y}`;lx=(s.x+e.x)/2+ls*.2;ly=(s.y+e.y)/2-ls*.3;if(l.k==="rel"&&l.rk)label+=" "+RK[l.rk];if(l.name)label+=" "+l.name}
+      out.push(`<g${did(l)}${l.by==="claude"?' opacity=".8"':""}${linePE}><path d="${d}" stroke="transparent" stroke-width="${ls*1.2}" fill="none"/><path d="${d}" stroke="${stroke}" stroke-width="${sw}" fill="none"${dash} marker-end="url(#ar-${mk})"/>`+
+        `<text x="${lx}" y="${ly}" font-size="${ls*.6}" fill="${stroke}" font-weight="600">${esc(label)}</text></g>`)});
+    if(doc.funcs.length&&!isComp(p)){const x0=p.w+ls*7.5,bw=ls*9,bh=ls*2.4;out.push(`<text x="${x0}" y="${-ls*.6}" font-size="${ls*.8}" fill="#C0267A" font-weight="700">功能库</text>`);
+      const hl=new Set();if(selId){p.items.forEach(l=>{if(l.t==="line"&&l.k==="call"&&(l.id===selId||l.a===selId))l.calls.forEach(c=>hl.add(c))})}
+      doc.funcs.forEach((f,i)=>{const y=i*(bh+ls*.5),on=hl.has(f.id)||selFunc===f.id;
+        out.push(`<g${liveMode?` data-f="${f.id}"`:""}><rect x="${x0}" y="${y}" width="${bw}" height="${bh}" rx="${ls*.3}" fill="${on?"#C0267A":"#FBEAF2"}" stroke="#C0267A" stroke-width="${ls*.08}"${f.by==="claude"?` stroke-dasharray="${ls*.4} ${ls*.25}"`:""}/>`+
+          `<text x="${x0+ls*.5}" y="${y+bh*.66}" font-size="${ls*1.1}" font-weight="700" fill="${on?"#fff":"#C0267A"}">${LETTER(i)}</text><text x="${x0+ls*2}" y="${y+bh*.62}" font-size="${ls*.75}" fill="${on?"#fff":"#5B2140"}">${esc(f.name)}${f.comp?" ▣":""}</text></g>`)})}
+  }
+  if(liveMode&&!tm){
+    const s=selId&&byId(selId);
+    if(s&&isNode(s)&&vis(s)){const b=bbox(s),v=view(),pad=4/v.z,lk=isLocked(s);out.push(`<rect x="${b.x-pad}" y="${b.y-pad}" width="${b.w+2*pad}" height="${b.h+2*pad}" fill="rgba(15,111,124,.06)" stroke="${lk?"#8A9598":"#0F6F7C"}" stroke-width="${2.5/v.z}"${lk?` stroke-dasharray="${6/v.z} ${4/v.z}"`:""} pointer-events="none"/>`);
+      if(s.t!=="point"&&!lk&&s.id!==focusId&&arrangeTool()){const hs=16/v.z,hw=6/v.z,hl=Math.min(40/v.z,b.h*.5),hl2=Math.min(40/v.z,b.w*.5);
+        out.push(`<g pointer-events="none"><rect x="${b.x+b.w-hw/2}" y="${b.y+b.h/2-hl/2}" width="${hw}" height="${hl}" rx="${hw/2}" fill="#0F6F7C"/><rect x="${b.x+b.w/2-hl2/2}" y="${b.y+b.h-hw/2}" width="${hl2}" height="${hw}" rx="${hw/2}" fill="#0F6F7C"/><rect x="${b.x+b.w-hs/2}" y="${b.y+b.h-hs/2}" width="${hs}" height="${hs}" rx="${3/v.z}" fill="#0F6F7C" stroke="#fff" stroke-width="${2/v.z}"/></g>`)}}
+    if(linePick){const a=byId(linePick);if(a){const b=bbox(a),v=view(),pad=6/v.z;out.push(`<rect x="${b.x-pad}" y="${b.y-pad}" width="${b.w+2*pad}" height="${b.h+2*pad}" fill="none" stroke="${lineKind==="open"?"#2E7FD8":"#3A4A50"}" stroke-width="${3/v.z}" stroke-dasharray="${8/v.z} ${5/v.z}" pointer-events="none"/>`)}}
+  }
+  return out.join("")}
+function strokePath(pts){if(!pts.length)return"M0,0";if(pts.length<4)return`M${pts[0]},${pts[1]}l0.01,0`;let d=`M${pts[0]},${pts[1]}`;for(let k=2;k<pts.length-2;k+=2){const mx=(pts[k]+pts[k+2])/2,my=(pts[k+1]+pts[k+3])/2;d+=`Q${pts[k]},${pts[k+1]} ${mx},${my}`}d+=`L${pts[pts.length-2]},${pts[pts.length-1]}`;return d}
+function renderCanvas(){$("#defs").innerHTML=markerDefs();world.innerHTML=drawPage(page());renderCtx();applyView()}
+const arrangeTool=()=>["select","frame","button","point","comp"].includes(tool);
+const gridStep=p=>Math.max(4,Math.round((p||page()).w/40));
+
+/* ---------- 画板上方的提示和大小选择 ---------- */
+function renderCtx(){const c=$("#ctx");const h=[];
+  if(tryMode){c.innerHTML="";return}
+  if(focusId){const f=byId(focusId);if(f)h.push(`<span class="msg focus">正在编辑 ${esc(numbering()[f.id])} ${esc(f.name)}：新加的东西都放在这个框里</span><span class="chips"><button class="cbtn exit" data-ctx="exitFocus">退出框</button></span>`)}
+  let t="";
+  const selFrame=sel&&sel.k==="item"&&byId(sel.id)&&byId(sel.id).t==="frame"?byId(sel.id):null;
+  const fr=n=>n===1?"整":"1/"+n;
+  if(tool==="frame"||(tool==="select"&&selFrame)){if(tool==="frame")h.push(`<span class="msg">连点两下加入框；点一下只选中</span>`);
+    h.push(`<span class="chips"><span class="cbtn" style="pointer-events:none;color:var(--ink2)">宽</span>${SPLITS.map(n=>`<button class="cbtn${sizeKey.fw===n?" on":""}" data-fw="${n}">${fr(n)}</button>`).join("")}</span><span class="chips"><span class="cbtn" style="pointer-events:none;color:var(--ink2)">高</span>${SPLITS.map(n=>`<button class="cbtn${sizeKey.fh===n?" on":""}" data-fh="${n}">${fr(n)}</button>`).join("")}</span>`)}
+  else if(tool==="button"){h.push(`<span class="msg">连点两下加入按键；点一下只选中</span><span class="chips"><span class="cbtn" style="pointer-events:none;color:var(--ink2)">大小</span>${BTN_SIZES.map(s=>`<button class="cbtn${sizeKey.button===s[0]?" on":""}" data-size="${s[0]}">${s[0]}</button>`).join("")}</span>`)}
+  else if(tool==="point")t="连点两下加一个点";
+  else if(tool==="comp"){const cp=doc.pages.find(x=>x.id===placeComp);t="连点两下放入组件「"+(cp?pageNo(cp.id)+" "+cp.name:"")+"」";h.push(`<span class="msg">${esc(t)}</span><span class="chips"><button class="cbtn" data-ctx="endComp">不放了</button></span>`);t=""}
+  else if(tool==="line"){if(lineKind==="call")t="调用线：点一个东西，再在下方文字区选它调用哪些功能（A、B、C…）";else if(linePick)t=lineKind==="open"?"再点要打开的框；或点上方的页面标签，表示跳到那个页面":"再点第二个东西，就连上关系线";else t=(lineKind==="open"?"开启线":"关系线")+"：先点第一个东西"}
+  else if(tool==="pen")t="手画：不编号。画在框里会跟着框一起显示";else if(tool==="eraser")t="在笔画上划过就擦掉";
+  else if(tool==="select"&&!focusId&&!sel)t="点一下选中，拖动调位置；长按一个框进入框内编辑；滚轮缩放，拖页面外面移动画面";
+  if(t)h.push(`<span class="msg">${esc(t)}</span>`);
+  if(doc.layers[curLayer-1].lock&&["frame","button","point","pen","comp"].includes(tool))h.push(`<span class="msg">层${curLayer} 已锁住，不能在这层新加东西</span>`);
+  c.innerHTML=h.join("")}
+$("#ctx").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.size||b.dataset.fw||b.dataset.fh){if(b.dataset.size)sizeKey.button=b.dataset.size;if(b.dataset.fw)sizeKey.fw=+b.dataset.fw;if(b.dataset.fh)sizeKey.fh=+b.dataset.fh;const want=b.dataset.size?"button":"frame";
+    const s=sel&&sel.k==="item"&&byId(sel.id);if(s&&s.t===want&&!isLocked(s)){applySize(s,b.dataset.fw?"w":b.dataset.fh?"h":"both");recomputeParents();commit();render()}else renderCtx();return}
+  if(b.dataset.ctx==="exitFocus"){exitFocus();return}
+  if(b.dataset.ctx==="endComp"){tool="select";placeComp=null;render(true)}});
+/* 框的大小 = 所在框（或页面）的宽、高 n 等分，扣掉间距 */
+function splitLen(L,n){const g=doc.gap;return Math.max(16,Math.floor((L-(n+1)*g)/n))}
+function sizeFor(t,C){const ls=LS();if(t==="frame")return{w:splitLen(C.w,sizeKey.fw),h:splitLen(C.h,sizeKey.fh)};
+  const s=BTN_SIZES.find(x=>x[0]===sizeKey.button)||BTN_SIZES[1];return{w:Math.round(s[1]?ls*s[1]:C.w*.86),h:Math.round(ls*s[2])}}
+function applySize(it,which){which=which||"both";const par=it.p&&byId(it.p);const C=par?bbox(par):pageRect();const s=sizeFor(it.t,C);if(which!=="h")it.w=Math.min(s.w,C.w);if(which!=="w")it.h=Math.min(s.h,C.h);it.x=Math.round(clamp(it.x,C.x,C.x+C.w-it.w));it.y=Math.round(clamp(it.y,C.y,C.y+C.h-it.h))}
+
+/* ---------- 工具条、页面标签 ---------- */
+function renderBar(){
+  document.querySelectorAll("[data-tool]").forEach(b=>b.classList.toggle("on",tool===b.dataset.tool));
+  document.querySelectorAll("[data-line]").forEach(b=>b.classList.toggle("on",tool==="line"&&lineKind===b.dataset.line));
+  document.querySelectorAll("[data-layer]").forEach(b=>{const L=+b.dataset.layer,st=doc.layers[L-1];b.classList.toggle("on",curLayer===L);b.textContent="层"+L+(st.hide?"·隐":"")+(st.lock?"·锁":"")});
+  $("#layHide").textContent=doc.layers[curLayer-1].hide?"显示":"隐藏";$("#layLock").classList.toggle("on",doc.layers[curLayer-1].lock);$("#layLock").textContent=doc.layers[curLayer-1].lock?"解锁层":"锁层";
+  $("#pageLock").classList.toggle("on",pageLock);$("#snapBtn").classList.toggle("on",snapOn);$("#gridBtn").classList.toggle("on",gridOn);$("#tryBtn").classList.toggle("on",tryMode);
+  const pickPage=tool==="line"&&lineKind==="open"&&linePick;
+  const tab=p=>`<button class="pg${p.id===pageId?" on":""}${isComp(p)?" comp":""}${pickPage&&p.id!==pageId&&!isComp(p)?" target":""}" data-page="${p.id}">${pageLabel(p)} ${esc(p.name)}${p.lk?" ·锁":""}${p.by?" ·Claude":""}</button>`;
+  const cur=page();
+  $("#pageRow").innerHTML=`<span class="lbl">页面</span>`+pagesOfKind("page").map(tab).join("")+`<button class="pg" data-page="+">＋</button><span class="sep"></span><span class="lbl">组件</span>`+pagesOfKind("comp").map(tab).join("")+`<button class="pg comp" data-page="+c">＋</button><span class="spacer"></span>`+
+    `<select class="pg" id="scrSel" aria-label="页面尺寸">${SCREENS.filter(s=>isComp(cur)?true:!s.k.startsWith("c-")).map(s=>`<option value="${s.k}"${cur.scr===s.k?" selected":""}>${s.n}</option>`).join("")}${SCREENS.some(s=>s.k===cur.scr)?"":`<option selected>自定义 ${cur.w}×${cur.h}</option>`}</select>`;
+  $("#tryBar").hidden=!tryMode;$("#tryBack").hidden=!tryHist.length;updateUndo()}
+
+/* ---------- 文字区（树） ---------- */
+function lockBtn(o,p){const own=!!o.lk;let inh="";if(!own){if(doc.pages.includes(o))inh="";else{const r=lockReason(o,p);inh=r}}
+  return`<button class="lk${own?" on":inh?" inh":""}" data-lock="${o.id}" title="${own?"点一下解锁":inh?esc(inh):"锁住这一栏"}">${own?"已锁":inh?"锁":"锁"}</button>`}
+function renderTree(keepFocus){
+  const ae=document.activeElement,fk=ae&&ae.dataset&&(ae.dataset.nm||ae.dataset.note)?{attr:ae.dataset.nm?"nm":"note",id:ae.dataset.nm||ae.dataset.note,s:ae.selectionStart,e:ae.selectionEnd}:null;
+  const p=page(),N=numbering(p),h=[];const selId=sel?sel.id:null;
+  const fold=(key,label,count,depth,extra)=>{const isShut=shut.has(key);h.push(`<div class="fold d${depth}${isShut?" shut":""}" data-fold="${key}"><span class="ar">▾</span><b>${label}</b><span class="c">${count}</span>${extra||""}</div>`);return!isShut};
+  const row=(o,depth,num,tcls,tag,noLock)=>{const s=selId===o.id,lk=!noLock&&isNode(o)?isLocked(o,p):false;h.push(`<div class="row d${depth}${s?" sel":""}${lk?" locked":""}" data-r="${o.id}"><span class="num t-${tcls}">${num}</span><input class="nm" data-nm="${o.id}" value="${esc(o.name)}" placeholder="${tcls==="func"?"功能名字":"名字（可空）"}">${o.note&&!s?`<span class="prev">${esc(o.note)}</span>`:""}${tag||""}${o.by==="claude"?`<span class="tag cl">Claude</span>`:""}${noLock?"":lockBtn(o,p)}</div>`);if(s)h.push(detail(o,depth))};
+  if(fold("funcs","功能库",doc.funcs.length,1,`<span class="c">· 整份文件共用</span>`)){if(!doc.funcs.length)h.push(`<div class="empty d2">在最下面输入"功能 翻译"来加入</div>`);doc.funcs.forEach((f,i)=>row(f,2,LETTER(i),"func",f.comp?`<span class="tag">▣ ${esc(pageNo(f.comp))}</span>`:"",true))}
+  const pageBlock=(pg)=>{const isCur=pg.id===pageId;
+    h.push(`<div class="row d2${selId===pg.id?" sel":""}${isCur?" cur":""}" data-r="${pg.id}"><span class="num${isComp(pg)?" t-comp":""}">${pageLabel(pg)}</span><input class="nm" data-nm="${pg.id}" value="${esc(pg.name)}" placeholder="${isComp(pg)?"组件名字":"页面名字"}">${pg.by==="claude"?`<span class="tag cl">Claude</span>`:""}<span class="tag">${pg.w}×${pg.h}</span>${lockBtn(pg,pg)}</div>`);
+    if(selId===pg.id)h.push(detail(pg,2));
+    if(!isCur)return;
+    const its=pg.items,frames=its.filter(i=>i.t==="frame");
+    if(fold("fr:"+pg.id,"框",frames.length,3)){if(!frames.length)h.push(`<div class="empty d4">还没有框</div>`);
+      const walk=(list,d)=>list.forEach(f=>{row(f,d,N[f.id],"frame",(f.ref?`<span class="tag">▣ ${esc(pageNo(f.ref))}</span>`:"")+(f.L>1?`<span class="tag">层${f.L}</span>`:"")+(openTargets(pg).has(f.id)?`<span class="tag op">被打开</span>`:""));walk(frames.filter(g=>g.p===f.id),Math.min(d+1,7))});
+      walk(frames.filter(f=>!f.p||!frames.some(g=>g.id===f.p)),4)}
+    const btns=its.filter(i=>i.t==="button");
+    if(fold("bt:"+pg.id,"按键",btns.length,3)){if(!btns.length)h.push(`<div class="empty d4">还没有按键</div>`);btns.forEach(b=>{const opens=its.filter(l=>l.t==="line"&&l.k==="open"&&l.a===b.id).map(l=>l.bp?pageNo(l.bp):N[l.b]).join("、");const calls=its.filter(l=>l.t==="line"&&l.k==="call"&&l.a===b.id).flatMap(l=>l.calls);
+      row(b,4,N[b.id],"button",(b.p?`<span class="tag">在${N[b.p]}</span>`:"")+(b.L>1?`<span class="tag">层${b.L}</span>`:"")+(opens?`<span class="tag op">打开${opens}</span>`:"")+(calls.length?`<span class="tag ca">${calls.map(funcLetter).join("·")}</span>`:""))})}
+    const pts=its.filter(i=>i.t==="point");
+    if(fold("pt:"+pg.id,"点",pts.length,3)){if(!pts.length)h.push(`<div class="empty d4">还没有点</div>`);pts.forEach(t=>row(t,4,N[t.id],"point",t.p?`<span class="tag">在${N[t.p]}</span>`:""))}
+    const lines=its.filter(i=>i.t==="line");
+    if(fold("ln:"+pg.id,"线",lines.length,3)){["open","rel","call"].forEach(k=>{const ls=lines.filter(l=>l.k===k);if(fold("ln"+k+":"+pg.id,KN[k],ls.length,4))ls.forEach(l=>row(l,5,N[l.id],k,`<span class="tag">${esc(lineDesc(l,N))}</span>`))})}
+  };
+  if(fold("pages","页面",pagesOfKind("page").length,1))pagesOfKind("page").forEach(pageBlock);
+  if(fold("comps","组件",pagesOfKind("comp").length,1,`<span class="c">· 单独设计一个功能栏，再放进页面</span>`)){if(!pagesOfKind("comp").length)h.push(`<div class="empty d2">在最下面输入"组件 侧边栏"，或点上方组件后面的 ＋</div>`);pagesOfKind("comp").forEach(pageBlock)}
+  const tree=$("#tree");tree.innerHTML=h.join("");
+  if(fk){const el=tree.querySelector(`[data-${fk.attr}="${fk.id}"]`);if(el){el.focus({preventScroll:true});try{el.setSelectionRange(fk.s,fk.e)}catch(e){}}}
+  else if(!keepFocus){const r=selId&&tree.querySelector(`[data-r="${selId}"]`);if(r)r.scrollIntoView({block:"nearest"})}
+  $("#title").value=doc.title}
+function lineDesc(l,N){N=N||numbering();const a=N[l.a]||"?";if(l.k==="call")return a+" → "+(l.calls.length?l.calls.map(funcLetter).join("、"):"未选功能");if(l.bp)return a+" → "+pageNo(l.bp);return a+(l.k==="rel"?" — ":" → ")+(N[l.b]||"?")}
+function detail(o,depth){const N=numbering(),d=[];const isPage=doc.pages.includes(o),isFunc=doc.funcs.includes(o);
+  d.push(`<textarea data-note="${o.id}" placeholder="解释：这个东西是什么、做什么">${esc(o.note)}</textarea>`);
+  if(isPage){const nCl=o.items.filter(i=>i.by==="claude").length;
+    d.push(`<div class="r">尺寸：${o.w}×${o.h}（在上方右侧改）${isComp(o)?"　被放在 "+countInstances(o.id)+" 个地方":""}</div>`);
+    d.push(`<div class="r"><button class="sbtn" data-act="pgup" data-id="${o.id}">往前移</button><button class="sbtn" data-act="pgdown" data-id="${o.id}">往后移</button>${isComp(o)?`<button class="sbtn" data-act="placeComp" data-id="${o.id}">放进页面</button>`:""}${o.by||nCl?`<button class="sbtn ok" data-act="adoptPage" data-id="${o.id}">采纳本页 Claude 提议${nCl?"（"+nCl+"）":""}</button><button class="sbtn del" data-act="rejectPage" data-id="${o.id}">拒绝本页 Claude 提议</button>`:""}${(pagesOfKind("page").length>1||isComp(o))?`<button class="sbtn del" data-act="delpage" data-id="${o.id}">删除${isComp(o)?"这个组件":"这个页面"}</button>`:""}</div>`)}
+  else if(isFunc){const users=[];doc.pages.forEach(pg=>pg.items.forEach(l=>{if(l.t==="line"&&l.k==="call"&&l.calls.includes(o.id))users.push(pageLabel(pg)+" "+(numbering(pg)[l.a]||"?"))}));
+    d.push(`<div class="r">界面（组件） <select data-fcomp="${o.id}"><option value="">没有</option>${pagesOfKind("comp").map(c=>`<option value="${c.id}"${o.comp===c.id?" selected":""}>${esc(pageLabel(c)+" "+c.name)}</option>`).join("")}</select></div>`);
+    d.push(`<div class="r">被调用：${users.length?esc(users.join("、")):"还没有"}</div>`);d.push(`<div class="r">${o.by?`<button class="sbtn ok" data-act="adopt" data-id="${o.id}">采纳</button>`:""}<button class="sbtn del" data-act="del" data-id="${o.id}">删除这个功能</button></div>`)}
+  else{
+    if(o.t==="frame"||o.t==="button")d.push(`<div class="r">状态 <select data-st="${o.id}">${Object.keys(STS).map(k=>`<option value="${k}"${o.st===k?" selected":""}>${STS[k]}</option>`).join("")}</select>　图层 <select data-lay="${o.id}">${[1,2,3].map(L=>`<option value="${L}"${o.L===L?" selected":""}>层${L}</option>`).join("")}</select></div>`);
+    if(o.t==="frame"){d.push(`<div class="r">${o.p?"在 "+N[o.p]+" 里面　":""}<button class="sbtn" data-act="focus" data-id="${o.id}">进入这个框编辑</button>${o.ref?`<button class="sbtn" data-act="gocomp" data-id="${o.ref}">去改这个组件</button><button class="sbtn" data-act="unref" data-id="${o.id}">变回普通框</button>`:""}</div>`)}
+    if(o.t==="button"||o.t==="point")d.push(`<div class="r">${o.p?"在 "+N[o.p]+" 里面":"不在任何框里"}</div>`);
+    if(isNode(o)){const opens=items().filter(l=>l.t==="line"&&l.k==="open"&&l.a===o.id);if(opens.length)d.push(`<div class="r">打开：${esc(opens.map(l=>l.bp?pageNo(l.bp):N[l.b]).join("、"))}</div>`);
+      if(o.t==="button"||items().some(l=>l.t==="line"&&l.k==="call"&&l.a===o.id)){const cl=items().find(l=>l.t==="line"&&l.k==="call"&&l.a===o.id);d.push(`<div class="r">调用功能：${doc.funcs.length?doc.funcs.map((f,i)=>`<button class="chip${cl&&cl.calls.includes(f.id)?" on":""}" data-callof="${o.id}" data-fn="${f.id}">${LETTER(i)} ${esc(f.name)}</button>`).join(""):"先在最下面输入“功能 名字”加入功能"}</div>`)}}
+    if(o.t==="line"){d.push(`<div class="r">${KN[o.k]}：${esc(lineDesc(o,N))}</div>`);
+      if(o.k==="rel")d.push(`<div class="r">关系 <select data-rk="${o.id}">${Object.keys(RK).map(k=>`<option value="${k}"${o.rk===k?" selected":""}>${RK[k]}</option>`).join("")}</select></div>`);
+      if(o.k==="call")d.push(`<div class="r">调用：${doc.funcs.length?doc.funcs.map((f,i)=>`<button class="chip${o.calls.includes(f.id)?" on":""}" data-call="${o.id}" data-fn="${f.id}">${LETTER(i)} ${esc(f.name)}</button>`).join(""):"先在最下面输入“功能 名字”加入功能"}</div>`)}
+    d.push(`<div class="r">${o.by?`<button class="sbtn ok" data-act="adopt" data-id="${o.id}">采纳 Claude 的提议</button>`:""}<button class="sbtn del" data-act="del" data-id="${o.id}">删除</button></div>`)}
+  return`<div class="detail" style="margin-left:${depth*16}px">${d.join("")}</div>`}
+function countInstances(cid){let n=0;doc.pages.forEach(p=>p.items.forEach(i=>{if(i.ref===cid)n++}));return n}
+let panelTab="items";
+function render(keepFocus){renderBar();renderCanvas();if(panelTab==="logic"){const ta=$("#logicTa");if(!(ta&&document.activeElement===ta))renderLogic()}else renderTree(keepFocus)}
+/* ---------- 逻辑说明：每页一段纯文字，可以插入【框1】【键3】这样的引用 ---------- */
+function invNumbering(p){const N=numbering(p),inv={};Object.keys(N).forEach(id=>inv[N[id]]=id);return{N,inv}}
+function logicToDisplay(p){const N=numbering(p);return(p.logic||"").replace(/⟦([^⟧]+)⟧/g,(m,id)=>{const it=byId(id,p);return it?"【"+N[id]+(it.name?" "+it.name:"")+"】":"【已删除】"})}
+function logicFromDisplay(p,text){const {inv}=invNumbering(p);return text.replace(/【((?:框[\d.]+|键\d+|点\d+|开\d+|关\d+|调\d+))(?:[ \u3000][^】]*)?】/g,(m,lab)=>inv[lab]?"⟦"+inv[lab]+"⟧":m)}
+function logicRefs(p){const ids=[];(p.logic||"").replace(/⟦([^⟧]+)⟧/g,(m,id)=>{if(!ids.includes(id)&&byId(id,p))ids.push(id)});return ids}
+function renderLogic(){const p=page(),N=numbering(p);const chip=(it)=>`<button class="t-${it.t}" data-ins="${it.id}">${esc(N[it.id])}${it.name?" "+esc(it.name):""}</button>`;
+  const nodes=p.items.filter(i=>i.t!=="line"),lines=p.items.filter(i=>i.t==="line"),refs=logicRefs(p);
+  $("#tree").innerHTML=`<div id="logicBox"><h4>${esc(pageLabel(p)+" "+(p.name||""))} 的逻辑说明</h4>
+    <textarea id="logicTa" placeholder="用自己的话写这一页的逻辑。例如：点【键1 搜索】打开【框2 弹窗】，弹窗里……&#10;点下面的标签可以把它插进文字里，编号以后会自动跟着变。">${esc(logicToDisplay(p))}</textarea>
+    <div class="refs"><span class="h">插入：</span>${nodes.length?nodes.map(chip).join(""):'<span class="h">这页还没有东西</span>'}</div>
+    ${lines.length?`<div class="refs"><span class="h">线：</span>${lines.map(l=>`<button class="t-line" data-ins="${l.id}">${esc(N[l.id])} ${esc(lineDesc(l,N))}</button>`).join("")}</div>`:""}
+    <div class="refs"><span class="h">文中提到：</span>${refs.length?refs.map(id=>`<button class="t-${byId(id,p).t}" data-see="${id}">${esc(N[id])}</button>`).join(""):'<span class="h">还没有</span>'}</div></div>`}
+$("#ptabs").addEventListener("click",e=>{const b=e.target.closest("[data-ptab]");if(!b)return;panelTab=b.dataset.ptab;document.querySelectorAll(".ptab").forEach(x=>x.classList.toggle("on",x===b));$("#addBar").hidden=panelTab==="logic";if(panelTab==="logic")renderLogic();else renderTree()});
+
+/* ---------- 新建、删除 ---------- */
+function layerWritable(){if(page().lk){toast("这个页面已锁，先在右边解锁");return false}if(doc.layers[curLayer-1].lock){toast("层"+curLayer+" 已锁住，先解锁再加东西");return false}if(doc.layers[curLayer-1].hide){toast("层"+curLayer+" 是隐藏的，先显示再加东西");return false}return true}
+function addItem(t,x,y,w,h,name,extra){if(!layerWritable())return null;const it={id:uid(),t,L:curLayer,name:name||"",note:"",st:"",by:"",lk:false,p:null,x:Math.round(x),y:Math.round(y),ref:""};
+  if(t!=="point"){it.w=Math.round(w);it.h=Math.round(h)}if(extra)Object.assign(it,extra);
+  items().push(it);recomputeParents();sel={k:"item",id:it.id};commit();return it}
+/* 在某个位置加东西：用默认大小，放在所在的框（或页面）里面 */
+function createAt(P,t){
+  if(focusId){const f=byId(focusId);if(f&&!contains(f,P)){toast("在框外面。要在外面加东西，先点“退出框”");return null}}
+  if(t==="point")return addItem("point",Math.round(P.x),Math.round(P.y),0,0,"");
+  const cont=containerAt(P),C=cont?bbox(cont):pageRect();
+  let w,h,extra=null,name="";
+  if(t==="comp"){const cp=doc.pages.find(x=>x.id===placeComp);if(!cp)return null;const s=Math.min(C.w*.6/cp.w,C.h*.8/cp.h,1);w=cp.w*s;h=cp.h*s;extra={ref:cp.id};name=cp.name;t="frame"}
+  else{const s=sizeFor(t,C);w=Math.min(s.w,C.w);h=Math.min(s.h,C.h)}
+  let x=clamp(P.x-w/2,C.x,C.x+C.w-w),y=clamp(P.y-h/2,C.y,C.y+C.h-h);
+  if(gridOn){const g=gridStep();x=Math.round(x/g)*g;y=Math.round(y/g)*g}
+  return addItem(t,x,y,w,h,name,extra)}
+function freeSpot(w,h){const c=focusId&&byId(focusId)?center(byId(focusId)):visibleCenter(),ls=LS(),g=ls*.8,p=page();const C=focusId&&byId(focusId)?bbox(byId(focusId)):pageRect();
+  const others=p.items.filter(i=>isNode(i)&&i.L===curLayer&&i.id!==focusId&&inFocus(i)).map(i=>bbox(i));
+  const hit=(x,y)=>others.some(o=>x<o.x+o.w+g&&x+w+g>o.x&&y<o.y+o.h+g&&y+h+g>o.y);
+  const x0=clamp(c.x-w/2,C.x,Math.max(C.x,C.x+C.w-w)),y0=clamp(c.y-h/2,C.y,Math.max(C.y,C.y+C.h-h));
+  for(let r=0;r<40;r++)for(let q=0;q<7;q++){const xx=x0+(q===0?0:(q%2?1:-1)*Math.ceil(q/2)*(w+g)),y=y0+r*(h+g);if(xx<C.x-w||xx>C.x+C.w)continue;if(!hit(xx,y))return{x:Math.round(xx),y:Math.round(y)}}
+  return{x:Math.round(x0),y:Math.round(y0)}}
+function deleteSel(){if(!sel)return;
+  if(sel.k==="func"){const id=sel.id;doc.funcs=doc.funcs.filter(f=>f.id!==id);doc.pages.forEach(p=>p.items.forEach(l=>{if(l.t==="line"&&l.calls)l.calls=l.calls.filter(c=>c!==id)}));sel=null;commit();render();return}
+  if(sel.k==="page"){deletePage(sel.id);return}
+  const it=byId(sel.id);if(!it)return;
+  const r=lockReason(it);if(r){toast(r+"，先解锁再删");return}
+  removeItems([it.id]);sel=null;if(focusId&&!byId(focusId))focusId=null;commit();render()}
+function removeItems(ids,p){p=p||page();const gone=new Set(ids);ids.forEach(id=>{const it=byId(id,p);if(it&&it.t==="frame")descendants(id,p).forEach(d=>gone.add(d.id))});
+  p.items=p.items.filter(i=>!gone.has(i.id)&&!(i.t==="line"&&(gone.has(i.a)||gone.has(i.b))));p.strokes=p.strokes.filter(s=>!gone.has(s.p));recomputeParents(p);if(gone.size>ids.length)toast("已删除，连同里面的 "+(gone.size-ids.length)+" 样东西");return gone.size}
+function deletePage(id){const pg=doc.pages.find(p=>p.id===id);if(!pg)return;if(!isComp(pg)&&pagesOfKind("page").length<2)return;
+  modal("删除"+(isComp(pg)?"组件":"页面"),"删除「"+esc(pageLabel(pg)+" "+pg.name)+"」和里面的所有东西？"+(isComp(pg)?"放了这个组件的地方会变回普通框。":"")+"之后可以按撤销找回。",[{t:"取消"},{t:"删除",pri:1,fn:()=>{
+    const i=doc.pages.indexOf(pg);doc.pages.splice(i,1);doc.pages.forEach(p=>{p.items=p.items.filter(l=>!(l.t==="line"&&l.bp===id));p.items.forEach(x=>{if(x.ref===id)x.ref=""})});doc.funcs.forEach(f=>{if(f.comp===id)f.comp=""});
+    if(pageId===id)pageId=pagesOfKind("page")[0].id;sel=null;focusId=null;commit();render()}}])}
+function addPage(name,kind){const cur=page();const p=newPage(name||"",kind==="comp"?"c-side":(isComp(cur)?"ipadv":cur.scr),kind);doc.pages.push(p);pageId=p.id;sel={k:"page",id:p.id};focusId=null;commit();render();return p}
+function addFunc(name){const f={id:uid(),name:name||"",note:"",by:"",comp:""};doc.funcs.push(f);sel={k:"func",id:f.id};commit();render();return f}
+function addLine(k,a,b,bp){const p=page();if(k!=="call"&&p.items.some(l=>l.t==="line"&&l.k===k&&l.a===a&&(bp?l.bp===bp:l.b===b))){toast("这条线已经有了");return null}
+  if(p.lk){toast("这个页面已锁");return null}
+  const l={id:uid(),t:"line",k,a,b:b||null,bp:bp||null,calls:[],rk:"",name:"",note:"",by:"",lk:false,L:1};p.items.push(l);sel={k:"item",id:l.id};commit();return l}
+function applyLayout(L){const tgt=focusId?byId(focusId):(sel&&sel.k==="item"&&byId(sel.id)&&byId(sel.id).t==="frame"?byId(sel.id):null);
+  if(tgt&&isLocked(tgt)&&tgt.id!==focusId){toast("这个框已锁");return}if(!layerWritable())return;
+  const C=tgt?bbox(tgt):pageRect(),ls=LS(),m=doc.gap,top=tgt?ls*1.6:0;
+  const I={x:C.x+m,y:C.y+m+top,w:C.w-2*m,h:C.h-2*m-top};
+  L[1].forEach(([name,x0,y0,x1,y1])=>{const g=m/2,x=I.x+x0*I.w+(x0>0?g:0),y=I.y+y0*I.h+(y0>0?g:0),w=(x1-x0)*I.w-(x0>0?g:0)-(x1<1?g:0),h=(y1-y0)*I.h-(y0>0?g:0)-(y1<1?g:0);
+    items().push({id:uid(),t:"frame",L:curLayer,name,note:"",st:"",by:"",lk:false,p:null,ref:"",x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)})});
+  recomputeParents();commit();render();toast("已铺好「"+L[0]+"」"+(tgt?"，在 "+numbering()[tgt.id]+" 里面":""))}
+function enterFocus(id){const f=byId(id);if(!f||f.t!=="frame")return;focusId=id;sel=null;linePick=null;const v=view();focusView={...v};const b=bbox(f);fitRect({x:b.x-b.w*.04,y:b.y-b.h*.04,w:b.w*1.08,h:b.h*1.08},60);
+  if(!["frame","button","point","pen","eraser","comp"].includes(tool))tool="select";render();toast("进入 "+numbering()[f.id]+"：新加的东西会放在这个框里")}
+function exitFocus(){if(!focusId)return;const f=byId(focusId);focusId=null;if(focusView){Object.assign(view(),focusView);focusView=null}if(f)sel={k:"item",id:f.id};render()}
+
+/* ---------- 吸附：对齐边和中线，并把框之间的距离吸到设定的间距 ---------- */
+function snapScope(excl){const p=page(),boxes=[];p.items.forEach(i=>{if(!isNode(i)||excl.has(i.id)||!layerShown(i.L))return;if(focusId&&(i.id===focusId||!inFocus(i)))return;boxes.push(bbox(i))});
+  const C=focusId&&byId(focusId)?bbox(byId(focusId)):pageRect();return{boxes,C}}
+function holderOf(b,excl){const p=page(),c={x:b.x+b.w/2,y:b.y+b.h/2};let best=null,ba=Infinity;p.items.forEach(f=>{if(f.t!=="frame"||excl.has(f.id)||!layerShown(f.L))return;if(focusId&&!inFocus(f))return;if(contains(f,c)&&f.w*f.h>b.w*b.h){const a=f.w*f.h;if(a<ba){ba=a;best=f}}});return best?bbox(best):(focusId&&byId(focusId)?bbox(byId(focusId)):pageRect())}
+const pick=(cur,d,mark,th)=>Math.abs(d)<th&&(!cur||Math.abs(d)<Math.abs(cur.d))?{d,mark}:cur;
+function snapMove(b,excl){const out={dx:0,dy:0,marks:[]};if(!snapOn&&!gridOn)return out;const th=10/view().z,g=doc.gap;let bx=null,by=null;
+  if(snapOn){const S=snapScope(excl),H=holderOf(b,excl),all=[...S.boxes,S.C,H];
+    all.forEach(o=>{[o.x,o.x+o.w/2,o.x+o.w].forEach(t=>[b.x,b.x+b.w/2,b.x+b.w].forEach(v=>bx=pick(bx,t-v,{k:"v",x:t},th)));[o.y,o.y+o.h/2,o.y+o.h].forEach(t=>[b.y,b.y+b.h/2,b.y+b.h].forEach(v=>by=pick(by,t-v,{k:"h",y:t},th)))});
+    if(g>0){S.boxes.forEach(o=>{const vOver=b.y<o.y+o.h&&b.y+b.h>o.y,hOver=b.x<o.x+o.w&&b.x+b.w>o.x;
+        if(vOver){const y=(Math.max(b.y,o.y)+Math.min(b.y+b.h,o.y+o.h))/2;bx=pick(bx,o.x+o.w+g-b.x,{k:"gx",x1:o.x+o.w,x2:o.x+o.w+g,y},th);bx=pick(bx,o.x-g-(b.x+b.w),{k:"gx",x1:o.x-g,x2:o.x,y},th)}
+        if(hOver){const x=(Math.max(b.x,o.x)+Math.min(b.x+b.w,o.x+o.w))/2;by=pick(by,o.y+o.h+g-b.y,{k:"gy",y1:o.y+o.h,y2:o.y+o.h+g,x},th);by=pick(by,o.y-g-(b.y+b.h),{k:"gy",y1:o.y-g,y2:o.y,x},th)}});
+      bx=pick(bx,H.x+g-b.x,{k:"gx",x1:H.x,x2:H.x+g,y:b.y+b.h/2},th);bx=pick(bx,H.x+H.w-g-(b.x+b.w),{k:"gx",x1:H.x+H.w-g,x2:H.x+H.w,y:b.y+b.h/2},th);
+      by=pick(by,H.y+g-b.y,{k:"gy",y1:H.y,y2:H.y+g,x:b.x+b.w/2},th);by=pick(by,H.y+H.h-g-(b.y+b.h),{k:"gy",y1:H.y+H.h-g,y2:H.y+H.h,x:b.x+b.w/2},th)}}
+  if(bx){out.dx=bx.d;out.marks.push(bx.mark)}else if(gridOn){const s=gridStep();out.dx=Math.round(b.x/s)*s-b.x}
+  if(by){out.dy=by.d;out.marks.push(by.mark)}else if(gridOn){const s=gridStep();out.dy=Math.round(b.y/s)*s-b.y}
+  return out}
+/* 拉宽/拉高：右边或下边吸到别的东西的边，或者吸到"离旁边的东西正好一个间距" */
+function snapEdge(v,axis,excl,r){if(!snapOn&&!gridOn)return{v,marks:[]};const th=10/view().z,g=doc.gap;let best=null;
+  if(snapOn){const S=snapScope(excl),H=holderOf(r,excl);[...S.boxes,S.C,H].forEach(o=>{(axis==="x"?[o.x,o.x+o.w/2,o.x+o.w]:[o.y,o.y+o.h/2,o.y+o.h]).forEach(t=>best=pick(best,t-v,axis==="x"?{k:"v",x:t}:{k:"h",y:t},th))});
+    if(g>0){S.boxes.forEach(o=>{if(axis==="x"&&r.y<o.y+o.h&&r.y+r.h>o.y&&o.x>=r.x){const y=(Math.max(r.y,o.y)+Math.min(r.y+r.h,o.y+o.h))/2;best=pick(best,o.x-g-v,{k:"gx",x1:o.x-g,x2:o.x,y},th)}
+        if(axis==="y"&&r.x<o.x+o.w&&r.x+r.w>o.x&&o.y>=r.y){const x=(Math.max(r.x,o.x)+Math.min(r.x+r.w,o.x+o.w))/2;best=pick(best,o.y-g-v,{k:"gy",y1:o.y-g,y2:o.y,x},th)}});
+      if(axis==="x")best=pick(best,H.x+H.w-g-v,{k:"gx",x1:H.x+H.w-g,x2:H.x+H.w,y:r.y+r.h/2},th);else best=pick(best,H.y+H.h-g-v,{k:"gy",y1:H.y+H.h-g,y2:H.y+H.h,x:r.x+r.w/2},th)}}
+  if(best)return{v:v+best.d,marks:[best.mark]};if(gridOn){const s=gridStep();return{v:Math.round(v/s)*s,marks:[]}}return{v,marks:[]}}
+function drawGuides(marks){const p=page(),v=view(),sw=1.3/v.z,c="#E0389A",fs=11/v.z,t=5/v.z;let s="";
+  (marks||[]).forEach(m=>{if(m.k==="v")s+=`<line x1="${m.x}" y1="${-p.h*.05}" x2="${m.x}" y2="${p.h*1.05}" stroke="${c}" stroke-width="${sw}" stroke-dasharray="${5/v.z} ${3/v.z}"/>`;
+    else if(m.k==="h")s+=`<line x1="${-p.w*.05}" y1="${m.y}" x2="${p.w*1.05}" y2="${m.y}" stroke="${c}" stroke-width="${sw}" stroke-dasharray="${5/v.z} ${3/v.z}"/>`;
+    else if(m.k==="gx")s+=`<path d="M${m.x1},${m.y}H${m.x2}M${m.x1},${m.y-t}V${m.y+t}M${m.x2},${m.y-t}V${m.y+t}" stroke="${c}" stroke-width="${sw*1.5}"/><text x="${(m.x1+m.x2)/2}" y="${m.y-t*1.4}" font-size="${fs}" text-anchor="middle" fill="${c}" font-weight="700">${doc.gap}</text>`;
+    else if(m.k==="gy")s+=`<path d="M${m.x},${m.y1}V${m.y2}M${m.x-t},${m.y1}H${m.x+t}M${m.x-t},${m.y2}H${m.x+t}" stroke="${c}" stroke-width="${sw*1.5}"/><text x="${m.x+t*1.6}" y="${(m.y1+m.y2)/2+fs*.35}" font-size="${fs}" fill="${c}" font-weight="700">${doc.gap}</text>`});
+  live.innerHTML=s}
+
+/* ---------- 画板操作（鼠标、手指、笔都一样） ---------- */
+const ptrs=new Map();let act=null;
+function hitInfo(target){const i=target.closest&&target.closest("[data-id]"),f=target.closest&&target.closest("[data-f]");return{iid:i&&i.dataset.id,fid:f&&f.dataset.f}}
+/* 把手：右边改宽、下边改高、右下角等比例。感应范围比看到的大很多 */
+function handleAt(it,cx,cy){const v=view(),r=cv.getBoundingClientRect(),b=bbox(it);const L=b.x*v.z+v.x+r.left,T=b.y*v.z+v.y+r.top,R=L+b.w*v.z,B=T+b.h*v.z;const near=22,edge=16;
+  if(Math.abs(cx-R)<near&&Math.abs(cy-B)<near)return"c";
+  if(Math.abs(cx-R)<edge&&cy>T&&cy<B)return"r";if(Math.abs(cy-B)<edge&&cx>L&&cx<R)return"b";return null}
+function outsidePage(P){const p=page();return P.x<0||P.y<0||P.x>p.w||P.y>p.h}
+function startPan(e){act={type:"pan",lx:e.clientX,ly:e.clientY,sx:e.clientX,sy:e.clientY,moved:false};cv.classList.add("panning")}
+cv.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse"&&e.button===2)return;
+  cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(e.pointerType==="mouse"&&(e.button===1||spaceDown)){startPan(e);act.force=true;return}
+  if(ptrs.size===2){if(act&&act.lp)clearTimeout(act.lp);if(act&&act.type==="pen")live.innerHTML="";if(act&&(act.type==="move"||act.type==="resize")&&act.moved){live.innerHTML="";recomputeParents();commit()}
+    if(tryPress){tryPress=null;renderCanvas()}const [p1,p2]=[...ptrs.values()],v=view();act={type:"pinch",d0:Math.hypot(p1.x-p2.x,p1.y-p2.y)||1,m0:{x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2},v0:{...v}};return}
+  if(ptrs.size>2)return;
+  const P=toWorld(e.clientX,e.clientY),hi=hitInfo(e.target);
+  act={type:"tap",sx:e.clientX,sy:e.clientY,lx:e.clientX,ly:e.clientY,P,...hi,moved:false,out:outsidePage(P)};
+  if(tryMode){const it=hi.iid&&byId(hi.iid);if(it&&it.t==="button"){tryPress=it.id;renderCanvas()}return}
+  if(tool==="pen"){if(!layerWritable()){act=null;return}act={...act,type:"pen",pts:[Math.round(P.x*10)/10,Math.round(P.y*10)/10]};return}
+  if(tool==="eraser"){act.type="erase";act.erased=0;eraseAt(P);return}
+  if(tool==="line"){return}
+  // 选择 / 框 / 按键 / 点 / 组件：点一下选中，拖动调位置
+  const s=sel&&sel.k==="item"&&byId(sel.id);
+  if(s&&isNode(s)&&s.t!=="point"&&s.id!==focusId&&!isLocked(s)&&inFocus(s)){const hk=handleAt(s,e.clientX,e.clientY);
+    if(hk){const kids=hk==="c"&&s.t==="frame"?descendants(s.id).map(m=>({m,x:m.x,y:m.y,w:m.w,h:m.h})):[];act={...act,type:"resize",mode:hk,id:s.id,x0:s.x,y0:s.y,w0:s.w,h0:s.h,kids};return}}
+  if(hi.fid){sel={k:"func",id:hi.fid};renderTree();renderCanvas();return}
+  const it=hi.iid&&byId(hi.iid);
+  if(it&&it.id===focusId){act.inFocusFrame=true;return}  // 框内编辑时点到框本身 = 点空白
+  if(it&&(isNode(it)?inFocus(it):true)){sel={k:"item",id:it.id};
+    if(it.t==="frame"&&!it.ref){act.lp=setTimeout(()=>{if(act&&!act.moved&&ptrs.size===1&&act.iid===it.id){const id=it.id;act=null;live.innerHTML="";enterFocus(id)}},520)}
+    else if(it.t==="frame"&&it.ref){act.lp=setTimeout(()=>{if(act&&!act.moved&&ptrs.size===1){act=null;toast("这是组件，要改里面请到上方的组件标签里改")}},520)}
+    if(isNode(it)&&!isLocked(it)){const moving=[it,...(it.t==="frame"?descendants(it.id):[])];const ids=new Set(moving.map(m=>m.id));const strokes=it.t==="frame"?page().strokes.filter(s=>ids.has(s.p)):[];
+      act={...act,type:"move",id:it.id,ids,orig:moving.map(m=>({m,x:m.x,y:m.y})),sorig:strokes.map(s=>({s,pts:s.pts.slice()})),b0:bbox(it)}}
+    renderTree();renderCanvas();return}
+  if(act.out&&!pageLock)act.type="pan";
+});
+cv.addEventListener("pointermove",e=>{
+  if(!ptrs.has(e.pointerId))return;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(!act)return;
+  if(act.type==="pinch"){if(ptrs.size<2)return;const [p1,p2]=[...ptrs.values()],d=Math.hypot(p1.x-p2.x,p1.y-p2.y),m=pageLock?act.m0:{x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2};const r=cv.getBoundingClientRect(),v=view(),v0=act.v0;
+    const z=clamp(v0.z*d/act.d0,.03,8),wx=(act.m0.x-r.left-v0.x)/v0.z,wy=(act.m0.y-r.top-v0.y)/v0.z;v.z=z;v.x=m.x-r.left-wx*z;v.y=m.y-r.top-wy*z;applyView();return}
+  if(ptrs.size>1)return;
+  const dx=e.clientX-act.sx,dy=e.clientY-act.sy;if(!act.moved&&Math.hypot(dx,dy)>6){act.moved=true;if(act.lp)clearTimeout(act.lp)}if(!act.moved)return;
+  const v=view(),P=toWorld(e.clientX,e.clientY);
+  if(act.type==="tap"&&tryMode&&act.out&&!pageLock)act.type="pan";
+  if(act.type==="pan"){v.x+=e.clientX-act.lx;v.y+=e.clientY-act.ly;act.lx=e.clientX;act.ly=e.clientY;applyView();return}
+  if(act.type==="move"){let wx=dx/v.z,wy=dy/v.z;const b=act.b0,sn=snapMove({x:b.x+wx,y:b.y+wy,w:b.w,h:b.h},act.ids);wx+=sn.dx;wy+=sn.dy;
+    act.orig.forEach(o=>{o.m.x=Math.round(o.x+wx);o.m.y=Math.round(o.y+wy)});act.sorig.forEach(o=>{o.s.pts=o.pts.map((n,k)=>k%2?n+wy:n+wx)});renderCanvas();drawGuides(sn.marks);return}
+  if(act.type==="resize"){const it=byId(act.id),ex=new Set([it.id,...descendants(it.id).map(d=>d.id)]);let marks=[];const r0={x:act.x0,y:act.y0,w:act.w0,h:act.h0};
+    if(act.mode==="r"){const s=snapEdge(act.x0+act.w0+dx/v.z,"x",ex,r0);it.w=Math.max(20,Math.round(s.v-act.x0));marks=s.marks}
+    else if(act.mode==="b"){const s=snapEdge(act.y0+act.h0+dy/v.z,"y",ex,r0);it.h=Math.max(14,Math.round(s.v-act.y0));marks=s.marks}
+    else{let k=Math.max((act.w0+dx/v.z)/act.w0,(act.h0+dy/v.z)/act.h0);const s=snapEdge(act.x0+act.w0*k,"x",ex,r0);if(s.marks.length){k=(s.v-act.x0)/act.w0;marks=s.marks}k=Math.max(k,20/act.w0,14/act.h0);
+      it.w=Math.round(act.w0*k);it.h=Math.round(act.h0*k);act.kids.forEach(o=>{o.m.x=Math.round(act.x0+(o.x-act.x0)*k);o.m.y=Math.round(act.y0+(o.y-act.y0)*k);if(o.m.t!=="point"){o.m.w=Math.round(o.w*k);o.m.h=Math.round(o.h*k)}})}
+    renderCanvas();drawGuides(marks);return}
+  if(act.type==="pen"){const l=act.pts.length;if(Math.hypot(P.x-act.pts[l-2],P.y-act.pts[l-1])>1.5/v.z){act.pts.push(Math.round(P.x*10)/10,Math.round(P.y*10)/10);live.innerHTML=`<path d="${strokePath(act.pts)}" fill="none" stroke="${penColor}" stroke-width="${penWidth()}" stroke-linecap="round" stroke-linejoin="round"/>`}return}
+  if(act.type==="erase"){eraseAt(P);return}
+});
+function endPtr(e){
+  if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);cv.classList.remove("panning");if(!act)return;
+  if(act.type==="pinch"){if(ptrs.size<2)act=null;return}
+  const a=act;act=null;if(a.lp)clearTimeout(a.lp);
+  if(tryMode){const was=tryPress;tryPress=null;if(!a.moved)tryTap(a.iid);else if(was)renderCanvas();return}
+  if(a.type==="move"||a.type==="resize"){live.innerHTML="";if(a.moved){recomputeParents();commit();render();return}}
+  if(a.type==="pan"){if(!a.moved&&!a.force&&tool==="select"&&!focusId){sel=null;render()}return}
+  if(a.type==="pen"){live.innerHTML="";if(a.pts.length>=2){page().strokes.push({id:uid(),L:curLayer,c:penColor,w:penWidth(),pts:a.pts,p:null});recomputeParents();commit();renderCanvas()}return}
+  if(a.type==="erase"){if(a.erased)commit();return}
+  if(a.moved)return;
+  if(tool==="line"){linePickTap(a.iid);return}
+  // 连点两下 = 加入（同一个位置）
+  const creating=["frame","button","point","comp"].includes(tool);const tgt=a.iid&&byId(a.iid);const onFree=!tgt||tgt.t==="frame";
+  const now=Date.now();
+  if(creating&&onFree&&lastTap&&now-lastTap.t<420&&Math.hypot(a.sx-lastTap.x,a.sy-lastTap.y)<28){lastTap=null;const it=createAt(a.P,tool);if(it){render();if(tool==="comp"){/* 放完一次就回到选择 */}}return}
+  lastTap={t:now,x:a.sx,y:a.sy};
+  if(a.type==="tap"&&!a.iid&&!a.fid){if(sel){sel=null;render()}}
+  else if(a.type==="move")render();
+}
+cv.addEventListener("pointerup",endPtr);
+cv.addEventListener("pointercancel",e=>{ptrs.delete(e.pointerId);if(act&&act.lp)clearTimeout(act.lp);if(act&&(act.type==="pen"||act.type==="move"||act.type==="resize"))live.innerHTML="";if(ptrs.size===0){act=null;if(tryPress){tryPress=null;renderCanvas()}}});
+cv.addEventListener("contextmenu",e=>{e.preventDefault();if(tryMode)return;const hi=hitInfo(document.elementFromPoint(e.clientX,e.clientY)||e.target),it=hi.iid&&byId(hi.iid),P=toWorld(e.clientX,e.clientY);
+  if(it&&(!isNode(it)||inFocus(it))&&it.id!==focusId){sel={k:"item",id:it.id};renderCanvas();renderTree()}
+  const node=it&&isNode(it)&&it.id!==focusId?it:null;
+  const m=menuAt(e.clientX,e.clientY,(node?`<div class="mh">${esc(numbering()[node.id]+" "+node.name)}</div><button class="mi" data-m="copy">复制　Ctrl+C</button><button class="mi" data-m="dup">复制一份放旁边　Ctrl+D</button>`:"")+
+    `<button class="mi" data-m="paste"${clip?"":" disabled style='opacity:.4'"}>粘贴到这里　Ctrl+V</button>`+
+    (node?`<hr>${node.t==="frame"&&!node.ref?`<button class="mi" data-m="focus">进入这个框编辑</button><button class="mi" data-m="layout">在这个框里铺布局…</button>`:""}<button class="mi" data-m="lock">${node.lk?"解锁":"锁住"}</button><button class="mi" data-m="del">删除　Delete</button>`:(!it?`<hr><button class="mi" data-m="layout">铺布局…</button>`:"")));
+  m.addEventListener("click",ev=>{const b=ev.target.closest("[data-m]");if(!b)return;closePop();const k=b.dataset.m;
+    if(k==="copy")copySel();else if(k==="dup")duplicateSel();else if(k==="paste")pasteAt(P);else if(k==="focus")enterFocus(node.id);else if(k==="del")deleteSel();
+    else if(k==="lock"){node.lk=!node.lk;commit();render()}else if(k==="layout")layoutMenu($("#layoutBtn"))})});
+cv.addEventListener("pointermove",e=>{if(e.pointerType==="mouse")lastMouse=toWorld(e.clientX,e.clientY)});
+cv.addEventListener("pointerleave",()=>{lastMouse=null});
+/* 滚轮 = 放大缩小 */
+cv.addEventListener("wheel",e=>{e.preventDefault();const d=e.deltaMode===1?e.deltaY*16:e.deltaY;zoomAt(Math.exp(-d*.0018),e.clientX,e.clientY)},{passive:false});
+["gesturestart","gesturechange","gestureend"].forEach(t=>document.addEventListener(t,e=>e.preventDefault()));
+const penWidth=()=>Math.max(2,LS()*.18);
+function eraseAt(P){const p=page(),r=LS()*.8;const before=p.strokes.length;p.strokes=p.strokes.filter(s=>{if(doc.layers[s.L-1].lock||doc.layers[s.L-1].hide||p.lk)return true;for(let k=0;k<s.pts.length;k+=2){if(Math.hypot(s.pts[k]-P.x,s.pts[k+1]-P.y)<r+(s.w||3)/2)return false}return true});if(p.strokes.length!==before){act&&(act.erased=1);renderCanvas()}}
+function linePickTap(iid){
+  const it=iid&&byId(iid);
+  if(!it||it.t==="line"){linePick=null;render();return}
+  if(lineKind==="call"){let l=items().find(x=>x.t==="line"&&x.k==="call"&&x.a===it.id);if(!l)l=addLine("call",it.id);if(l)sel={k:"item",id:l.id};render();toast("在下方选它调用哪些功能");return}
+  if(!linePick){linePick=it.id;render();return}
+  if(linePick===it.id){linePick=null;render();return}
+  const l=addLine(lineKind,linePick,it.id);linePick=null;render();if(l)toast(KN[lineKind]+"已连上")}
+/* 试用：点按键 → 打开/关上目标框，或跳页 */
+function tryTap(iid){const it=iid&&byId(iid);
+  const opens=it?items().filter(l=>l.t==="line"&&l.k==="open"&&l.a===it.id):[];
+  if(opens.length){let toPage=null;opens.forEach(l=>{if(l.bp)toPage=l.bp;else if(l.b){if(tryOpen.has(l.b))tryOpen.delete(l.b);else tryOpen.add(l.b)}});
+    if(toPage&&doc.pages.some(p=>p.id===toPage)){tryHist.push({pageId,open:[...tryOpen]});pageId=toPage;tryOpen.clear();if(!views[pageId])fitView();toast("跳到 "+pageNo(toPage)+" "+page().name);render(true);return}
+    renderCanvas();return}
+  if(it&&isNode(it)){for(const c of [it,...ancestors(it)]){if(tryOpen.has(c.id)){if(it.t==="button")toast("这个按键还没有开启线");else renderCanvas();return}}}
+  if(tryOpen.size){tryOpen.clear();renderCanvas();return}
+  if(it&&it.t==="button")toast("这个按键还没有开启线");else renderCanvas()}
+$("#tryBack").onclick=()=>{const h=tryHist.pop();if(!h)return;pageId=h.pageId;tryOpen=new Set(h.open);render(true)};
+
+/* ---------- 工具条事件 ---------- */
+$("#bar").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.tool){if(tryMode)setTry(false);tool=b.dataset.tool;linePick=null;placeComp=null;lastTap=null;render(true);return}
+  if(b.dataset.line){if(tryMode)setTry(false);tool="line";lineKind=b.dataset.line;linePick=null;render(true);return}
+  if(b.dataset.layer){curLayer=+b.dataset.layer;render(true);scheduleSave();return}
+  if(b.dataset.page){const id=b.dataset.page;
+    if(id==="+"){addPage("","page");return}if(id==="+c"){addPage("","comp");return}
+    if(tool==="line"&&lineKind==="open"&&linePick&&id!==pageId){const l=addLine("open",linePick,null,id);linePick=null;render();if(l)toast("开启线：点它会跳到 "+pageNo(id));return}
+    pageId=id;linePick=null;focusId=null;tryOpen.clear();if(sel&&sel.k==="item")sel=null;render();scheduleSave();return}
+  switch(b.id){
+    case"layHide":doc.layers[curLayer-1].hide=!doc.layers[curLayer-1].hide;commit();render(true);break;
+    case"layLock":doc.layers[curLayer-1].lock=!doc.layers[curLayer-1].lock;commit();render(true);break;
+    case"pageLock":pageLock=!pageLock;toast(pageLock?"页面已固定：拖页面外面不会移动画面，缩放和拖东西照常":"页面可以拖动了");render(true);break;
+    case"snapBtn":snapOn=!snapOn;toast(snapOn?"吸附已打开：拖动时会自动对齐":"吸附已关闭");render(true);scheduleSave();break;
+    case"gridBtn":gridOn=!gridOn;render(true);scheduleSave();break;
+    case"layoutBtn":layoutMenu(b);break;
+    case"tryBtn":setTry(!tryMode);break;
+    case"undoBtn":doUndo();break;case"redoBtn":doRedo();break;case"delBtn":deleteSel();break;
+    case"fileBtn":fileMenu(b);break;case"partsBtn":partsMenu(b);break;}
+});
+$("#pageRow").addEventListener("change",e=>{if(e.target.id!=="scrSel")return;const s=SCREENS.find(x=>x.k===e.target.value);if(!s)return;const p=page();if(p.lk){toast("这个页面已锁");render();return}p.scr=s.k;p.w=s.w;p.h=s.h;commit();fitView();render()});
+function setTry(on){tryMode=on;tryOpen.clear();tryHist=[];tryPress=null;linePick=null;if(on){sel=null;focusId=null;if(tool==="line")tool="select"}render(true)}
+$("#tryExit").onclick=()=>setTry(false);
+$("#gapNow").onclick=e=>{const r=e.currentTarget.getBoundingClientRect();const m=menuAt(r.left,r.bottom+4,`<div class="mh">预定间距（框和框之间、框和边之间）</div>`+GAPS.map(n=>`<button class="mi" data-gap="${n}">${n===doc.gap?"● ":"　"}${n}${n===0?"（贴紧）":""}</button>`).join(""));m.addEventListener("click",ev=>{const b=ev.target.closest("[data-gap]");if(b){closePop();setGap(b.dataset.gap)}})};
+$("#gapCustom").onclick=e=>{const r=e.currentTarget.getBoundingClientRect();const m=menuAt(r.left,r.bottom+4,`<div class="mh">自定义间距（像素）</div><form class="gapin"><input type="number" min="0" max="400" step="1" value="${doc.gap}" inputmode="numeric"><button>确定</button></form>`);
+  const f=m.querySelector("form"),i=m.querySelector("input");setTimeout(()=>{i.focus();i.select()},30);f.addEventListener("submit",ev=>{ev.preventDefault();closePop();setGap(i.value)})};
+$("#dupBtn").onclick=()=>duplicateSel();
+$("#zIn").onclick=()=>{const r=cv.getBoundingClientRect();zoomAt(1.25,r.left+r.width/2,r.top+r.height/2)};
+$("#zOut").onclick=()=>{const r=cv.getBoundingClientRect();zoomAt(.8,r.left+r.width/2,r.top+r.height/2)};
+$("#zFit").onclick=()=>{if(focusId&&byId(focusId)){const b=bbox(byId(focusId));fitRect({x:b.x-b.w*.04,y:b.y-b.h*.04,w:b.w*1.08,h:b.h*1.08},60)}else fitView();applyView();renderCanvas()};
+
+/* ---------- 文字区事件 ---------- */
+const tree=$("#tree");
+tree.addEventListener("input",e=>{if(e.target.id==="logicTa"){page().logic=logicFromDisplay(page(),e.target.value);clearTimeout(tree.lt);tree.lt=setTimeout(()=>{commit();const r=$("#logicBox .refs:last-child");if(r){const box=document.createElement("div");box.innerHTML=renderRefsOnly();r.replaceWith(box.firstChild)}},700)}});
+function renderRefsOnly(){const p=page(),N=numbering(p),refs=logicRefs(p);return`<div class="refs"><span class="h">文中提到：</span>${refs.length?refs.map(id=>`<button class="t-${byId(id,p).t}" data-see="${id}">${esc(N[id])}</button>`).join(""):'<span class="h">还没有</span>'}</div>`}
+tree.addEventListener("pointerdown",e=>{if(e.target.closest("[data-ins]"))e.preventDefault()});
+function findAny(id){return doc.funcs.find(f=>f.id===id)||doc.pages.find(p=>p.id===id)||items().find(i=>i.id===id)}
+tree.addEventListener("click",e=>{
+  const ins=e.target.closest("[data-ins]");if(ins){const p=page(),it=byId(ins.dataset.ins),N=numbering(p),ta=$("#logicTa");if(!it||!ta)return;const tok="【"+N[it.id]+(it.name?" "+it.name:"")+"】";
+    const a=ta.selectionStart??ta.value.length,b=ta.selectionEnd??a;ta.value=ta.value.slice(0,a)+tok+ta.value.slice(b);ta.focus();ta.setSelectionRange(a+tok.length,a+tok.length);p.logic=logicFromDisplay(p,ta.value);commit();sel={k:"item",id:it.id};renderCanvas();return}
+  const see=e.target.closest("[data-see]");if(see){sel={k:"item",id:see.dataset.see};renderCanvas();const it=byId(see.dataset.see);if(it&&isNode(it))centerOn(it);return}
+  const f=e.target.closest("[data-fold]");if(f){const k=f.dataset.fold;shut.has(k)?shut.delete(k):shut.add(k);renderTree(true);return}
+  const lk=e.target.closest("[data-lock]");if(lk){const o=findAny(lk.dataset.lock);if(o){o.lk=!o.lk;commit();render(true);toast(o.lk?(doc.pages.includes(o)?"整个页面已锁":"已锁住"+(o.t==="frame"?"，连同框里的所有东西":"")):"已解锁")}return}
+  const actb=e.target.closest("[data-act]");if(actb){const id=actb.dataset.id,a=actb.dataset.act;
+    if(a==="del"){deleteSel();return}
+    if(a==="delpage"){deletePage(id);return}
+    if(a==="adopt"){const o=findAny(id);if(o){o.by="";commit();render();toast("已采纳")}return}
+    if(a==="adoptPage"){const p=doc.pages.find(x=>x.id===id);p.by="";p.items.forEach(i=>i.by="");commit();render();toast("已采纳本页全部提议");return}
+    if(a==="rejectPage"){rejectClaude(doc.pages.find(x=>x.id===id));return}
+    if(a==="focus"){enterFocus(id);return}
+    if(a==="gocomp"){pageId=id;sel={k:"page",id};focusId=null;render();return}
+    if(a==="unref"){const o=byId(id);o.ref="";commit();render();return}
+    if(a==="placeComp"){startPlaceComp(id);return}
+    if(a==="pgup"||a==="pgdown"){const arr=doc.pages,i=arr.findIndex(p=>p.id===id),kind=arr[i].kind;let j=i;do{j+=a==="pgup"?-1:1}while(j>=0&&j<arr.length&&arr[j].kind!==kind);if(j<0||j>=arr.length)return;[arr[i],arr[j]]=[arr[j],arr[i]];commit();render();return}}
+  const ch=e.target.closest("[data-call]");if(ch){const l=byId(ch.dataset.call),fn=ch.dataset.fn;l.calls.includes(fn)?l.calls=l.calls.filter(c=>c!==fn):l.calls.push(fn);commit();render(true);return}
+  const co=e.target.closest("[data-callof]");if(co){const owner=co.dataset.callof,fn=co.dataset.fn;let l=items().find(x=>x.t==="line"&&x.k==="call"&&x.a===owner);
+    if(!l){l={id:uid(),t:"line",k:"call",a:owner,b:null,bp:null,calls:[],rk:"",name:"",note:"",by:"",lk:false,L:1};items().push(l)}
+    l.calls.includes(fn)?l.calls=l.calls.filter(c=>c!==fn):l.calls.push(fn);if(!l.calls.length)page().items=items().filter(x=>x!==l);commit();render(true);return}
+  const r=e.target.closest("[data-r]");if(r&&!e.target.closest("textarea,select")){selectRow(r.dataset.r,!e.target.matches("input"))}
+});
+function selectRow(id,doCenter){if(doc.funcs.some(f=>f.id===id))sel={k:"func",id};else if(doc.pages.some(p=>p.id===id)){if(pageId!==id){pageId=id;tryOpen.clear();focusId=null}sel={k:"page",id}}else sel={k:"item",id};
+  renderBar();renderCanvas();renderTree(true);if(doCenter&&sel.k==="item"){const it=byId(id);if(it&&isNode(it))centerOn(it);else if(it&&it.t==="line"){const a=byId(it.a);a&&centerOn(a)}}}
+tree.addEventListener("focusin",e=>{const id=e.target.dataset.nm||e.target.dataset.note;if(!id||(sel&&sel.id===id))return;
+  if(e.target.dataset.nm){if(doc.funcs.some(f=>f.id===id))sel={k:"func",id};else if(doc.pages.some(p=>p.id===id)){if(pageId!==id){pageId=id;focusId=null}sel={k:"page",id}}else sel={k:"item",id};renderBar();renderCanvas();renderTree(true);const it=byId(id);if(it&&isNode(it))centerOn(it)}});
+tree.addEventListener("input",e=>{const t=e.target;if(t.dataset.nm){const o=findAny(t.dataset.nm);if(o){o.name=t.value;renderCanvas();if(doc.pages.includes(o))renderBar()}}else if(t.dataset.note){const o=findAny(t.dataset.note);if(o)o.note=t.value}});
+tree.addEventListener("change",e=>{const t=e.target;
+  if(t.dataset.nm||t.dataset.note){commit();return}
+  if(t.dataset.st){byId(t.dataset.st).st=t.value;commit();render(true);return}
+  if(t.dataset.lay){const it=byId(t.dataset.lay);it.L=+t.value;if(it.t==="frame")descendants(it.id).forEach(d=>{if(d.L<it.L)d.L=it.L});recomputeParents();commit();render(true);return}
+  if(t.dataset.rk){byId(t.dataset.rk).rk=t.value;commit();render(true);return}
+  if(t.dataset.fcomp){const f=doc.funcs.find(x=>x.id===t.dataset.fcomp);f.comp=t.value;commit();render(true);return}});
+tree.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.dataset.nm){e.preventDefault();e.target.blur()}});
+$("#title").addEventListener("input",e=>{doc.title=e.target.value});$("#title").addEventListener("change",commit);
+/* 新加一栏：第一个词决定种类 */
+$("#addBar").addEventListener("submit",e=>{e.preventDefault();const v=$("#addIn").value.trim();if(!v)return;
+  const kinds=[["按键","button"],["键","button"],["框","frame"],["点","point"],["开启线","l-open"],["关系线","l-rel"],["调用线","l-call"],["线","l-rel"],["页面","page"],["页","page"],["组件","comp"],["功能","func"]];
+  const k=kinds.find(([w])=>v.startsWith(w));if(!k){toast("第一个词要是：框、按键、点、线、页面、组件、功能");return}
+  const name=v.slice(k[0].length).replace(/^[\s:：,，、]+/,"").trim();
+  if(k[1]==="page")addPage(name,"page");else if(k[1]==="comp")addPage(name,"comp");else if(k[1]==="func")addFunc(name);
+  else if(k[1].startsWith("l-")){tool="line";lineKind=k[1].slice(2);linePick=null;render();toast(lineKind==="call"?"点一个东西，再选它调用的功能":"在画板上依次点两个东西")}
+  else{const C=focusId&&byId(focusId)?bbox(byId(focusId)):pageRect();let it;
+    if(k[1]==="point"){const at=freeSpot(LS()*1.2,LS()*1.2);it=addItem("point",at.x,at.y,0,0,name)}
+    else{const s=sizeFor(k[1],C),w=Math.min(s.w,C.w),h=Math.min(s.h,C.h),at=freeSpot(w,h);it=addItem(k[1],at.x,at.y,w,h,name)}
+    if(!it)return;render();centerOn(it)}
+  $("#addIn").value=""});
+document.addEventListener("keydown",e=>{const typing=e.target.matches("input,textarea,select");
+  if(e.key===" "&&!typing){spaceDown=true;e.preventDefault();return}
+  if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==="z"){e.preventDefault();e.shiftKey?doRedo():doUndo();return}
+  if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==="y"){e.preventDefault();doRedo();return}
+  if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==="c"){e.preventDefault();copySel();return}
+  if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==="v"){e.preventDefault();pasteAt(lastMouse&&!outsidePage(lastMouse)?lastMouse:null);return}
+  if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==="d"){e.preventDefault();duplicateSel();return}
+  if(typing)return;
+  if(e.key==="Delete"||e.key==="Backspace"){e.preventDefault();deleteSel()}
+  else if(e.key==="Escape"){if(tryMode)setTry(false);else if(linePick){linePick=null;render()}else if(focusId)exitFocus();else{sel=null;render()}}
+  else if(e.key==="v")$('[data-tool="select"]').click();else if(e.key==="f")$('[data-tool="frame"]').click();else if(e.key==="b")$('[data-tool="button"]').click();else if(e.key==="p")$('[data-tool="pen"]').click()});
+document.addEventListener("keyup",e=>{if(e.key===" ")spaceDown=false});
+
+/* ---------- 复制、粘贴 ---------- */
+let clip=null,lastMouse=null;
+function grabSel(){const it=sel&&sel.k==="item"&&byId(sel.id);if(!it||!isNode(it))return null;const p=page();const set=[it,...(it.t==="frame"?descendants(it.id):[])],ids=new Set(set.map(x=>x.id));
+  const lines=p.items.filter(l=>l.t==="line"&&ids.has(l.a)&&(l.k==="call"||l.bp||ids.has(l.b)));
+  return{root:it.id,box:bbox(it),items:JSON.parse(JSON.stringify([...set,...lines])),strokes:JSON.parse(JSON.stringify(p.strokes.filter(s=>ids.has(s.p))))}}
+function copySel(){const g=grabSel();if(!g){toast("先选中一个框、按键或点");return}clip=g;toast("已复制 "+(g.items.filter(isNode).length)+" 样东西")}
+function placeCopy(src,x,y){const p=page();if(p.lk){toast("这个页面已锁");return null}const dx=x-src.box.x,dy=y-src.box.y,map={};src.items.forEach(i=>map[i.id]=uid());
+  const pids=new Set(doc.pages.map(q=>q.id));let root=null;
+  src.items.forEach(i=>{const c=JSON.parse(JSON.stringify(i));c.id=map[i.id];c.lk=false;c.by="";if(isNode(c)){c.x=Math.round(c.x+dx);c.y=Math.round(c.y+dy);c.p=null;if(c.L&&doc.layers[c.L-1].lock)c.L=curLayer}
+    else{c.a=map[c.a];if(c.b)c.b=map[c.b]||null;if(c.bp&&!pids.has(c.bp))c.bp=null;c.calls=(c.calls||[]).filter(f=>doc.funcs.some(x=>x.id===f));if(c.k==="open"&&!c.b&&!c.bp)return}
+    if(c.ref&&!pids.has(c.ref))c.ref="";p.items.push(c);if(i.id===src.root)root=c});
+  src.strokes.forEach(s=>p.strokes.push({...s,id:uid(),pts:s.pts.map((n,k)=>k%2?n+dy:n+dx)}));
+  recomputeParents();if(root)sel={k:"item",id:root.id};commit();render();return root}
+function pasteAt(P){if(!clip){toast("还没有复制东西");return}const g=doc.gap;let x,y;
+  if(P){x=P.x;y=P.y}else{x=clip.box.x+g*2;y=clip.box.y+g*2;clip.box={...clip.box,x,y}}
+  if(gridOn){const s=gridStep();x=Math.round(x/s)*s;y=Math.round(y/s)*s}
+  if(placeCopy(clip,x,y))toast("已粘贴")}
+function duplicateSel(){const g=grabSel();if(!g){toast("先选中一个框、按键或点");return}const b=g.box,p=page(),gap=doc.gap;
+  let x=b.x+b.w+gap,y=b.y;if(x+b.w>p.w&&b.y+b.h+gap+b.h<=p.h){x=b.x;y=b.y+b.h+gap}placeCopy(g,x,y)}
+/* 选中东西时，旁边的小按键：间距、自定义间距、复制一份 */
+function placeSelTools(){const box=$("#selTools");const it=sel&&sel.k==="item"&&byId(sel.id);
+  if(!it||!isNode(it)||tryMode||!arrangeTool()||it.t==="point"||!layerShown(it.L)||(focusId&&!inFocus(it))){box.hidden=true;return}
+  const v=view(),b=bbox(it),st=$("#stage").getBoundingClientRect();box.hidden=false;$("#gapNow").textContent="间距 "+doc.gap;
+  const bw=box.offsetWidth,bh=box.offsetHeight;let x=b.x*v.z+v.x+b.w*v.z+8,y=b.y*v.z+v.y;
+  if(x+bw>st.width-8)x=b.x*v.z+v.x+b.w*v.z-bw;if(x<8)x=8;if(y<8)y=8;if(y+bh>st.height-56)y=st.height-56-bh;
+  if(it.id===focusId){y=b.y*v.z+v.y-bh-6;if(y<50)y=50}box.style.left=x+"px";box.style.top=y+"px"}
+function setGap(n){n=Math.max(0,Math.min(400,Math.round(+n)));if(!Number.isFinite(n))return;doc.gap=n;scheduleSave();placeSelTools();toast("间距改成 "+n+"：拖动时会吸到这个距离")}
+function menuAt(x,y,html){closePop();const p=document.createElement("div");p.className="pop";p.innerHTML=html;document.body.appendChild(p);
+  p.style.left=clamp(x,8,window.innerWidth-p.offsetWidth-8)+"px";p.style.top=clamp(y,8,window.innerHeight-p.offsetHeight-8)+"px";
+  setTimeout(()=>document.addEventListener("pointerdown",function h(ev){if(!p.contains(ev.target)){closePop();document.removeEventListener("pointerdown",h,true)}},true),0);return p}
+
+/* ---------- 弹层、对话框 ---------- */
+function closePop(){document.querySelectorAll(".pop").forEach(p=>p.remove())}
+function popAt(anchor,html){closePop();const p=document.createElement("div");p.className="pop";p.innerHTML=html;document.body.appendChild(p);const r=anchor.getBoundingClientRect();
+  const x=clamp(r.left,8,window.innerWidth-p.offsetWidth-8);p.style.left=x+"px";p.style.top=Math.min(r.bottom+6,window.innerHeight-p.offsetHeight-8)+"px";setTimeout(()=>document.addEventListener("pointerdown",function h(ev){if(!p.contains(ev.target)){closePop();document.removeEventListener("pointerdown",h,true)}},true),0);return p}
+function modal(title,html,btns){const v=document.createElement("div");v.id="veil";v.innerHTML=`<div id="modal" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><p>${html}</p><div class="btns"></div></div>`;const bx=v.querySelector(".btns");
+  btns.forEach(b=>{const el=document.createElement("button");el.textContent=b.t;if(b.pri)el.className="pri";el.onclick=()=>{v.remove();b.fn&&b.fn()};bx.appendChild(el)});document.body.appendChild(v);bx.lastChild&&bx.lastChild.focus()}
+function layoutIcon(cells){return`<svg viewBox="0 0 64 48"><rect x="1" y="1" width="62" height="46" rx="3" fill="#fff" stroke="#8FA3A0"/>${cells.map(([n,x0,y0,x1,y1])=>`<rect x="${4+x0*56+1}" y="${4+y0*40+1}" width="${(x1-x0)*56-2}" height="${(y1-y0)*40-2}" rx="2" fill="#D7ECEE" stroke="#0F6F7C" stroke-width=".8"/>`).join("")}</svg>`}
+function layoutMenu(anchor){const tgt=focusId?byId(focusId):(sel&&sel.k==="item"&&byId(sel.id)&&byId(sel.id).t==="frame"?byId(sel.id):null);
+  const p=popAt(anchor,`<div class="mh">铺到：${tgt?esc(numbering()[tgt.id]+" "+tgt.name)+" 里面":"整个页面"}（先选中一个框，就铺到框里）</div><div class="lay">${LAYOUTS.map((L,i)=>`<button data-lay="${i}">${layoutIcon(L[1])}${esc(L[0])}</button>`).join("")}</div>`);
+  p.addEventListener("click",e=>{const b=e.target.closest("[data-lay]");if(!b)return;closePop();applyLayout(LAYOUTS[+b.dataset.lay])})}
+function startPlaceComp(id){if(isComp(page())&&pageId===id){toast("组件不能放进自己里面");return}if(isComp(page())){toast("先切换到要放的页面");}placeComp=id;tool="comp";lastTap=null;render(true)}
+function partsMenu(anchor){const comps=pagesOfKind("comp").filter(c=>c.id!==pageId);
+  const p=popAt(anchor,`<div class="mh">我的组件（选好后在画板上连点两下放入）</div>${comps.length?comps.map(c=>`<button class="mi" data-comp="${c.id}">▣　${esc(pageLabel(c)+" "+c.name)}</button>`).join(""):`<div class="mh" style="padding-top:0">还没有。点上方"组件"后面的 ＋ 新建一个</div>`}<hr>
+    <div class="mh">现成零件（放到空位上：框格=框，按键=按键）</div>`+PARTS.map(([g,list])=>`<div class="mh">${esc(g)}</div>`+list.map(([n,k])=>`<button class="mi" data-part="${esc(n)}" data-k="${k}">${k==="b"?"按键":"框"}　${esc(n)}</button>`).join("")).join(""));
+  p.addEventListener("click",e=>{const c=e.target.closest("[data-comp]");if(c){closePop();startPlaceComp(c.dataset.comp);return}
+    const b=e.target.closest("[data-part]");if(!b)return;closePop();const t=b.dataset.k==="b"?"button":"frame",C=focusId&&byId(focusId)?bbox(byId(focusId)):pageRect(),s=sizeFor(t,C),at=freeSpot(s.w,s.h);const it=addItem(t,at.x,at.y,s.w,s.h,b.dataset.part);render();it&&centerOn(it)})}
+function fileMenu(anchor){const nCl=doc.pages.reduce((n,p)=>n+p.items.filter(i=>i.by==="claude").length+(p.by?1:0),0)+doc.funcs.filter(f=>f.by).length;
+  const p=popAt(anchor,`
+  <div class="mh">导出（放到云端硬盘）</div>
+  <button class="mi" data-f="all">一键导出全部（打包成一个 .zip）</button>
+  <button class="mi" data-f="doc">只导出稿件文件（另一台设备打开继续改）</button>
+  <button class="mi" data-f="png">导出当前页面图片</button>
+  <button class="mi" data-f="md">导出文字清单</button>
+  <button class="mi" data-f="one">导出这一页给 Claude（空白页就是模板）</button>
+  <hr><div class="mh">打开</div>
+  <button class="mi" data-f="open">打开稿件文件（替换当前）</button>
+  <button class="mi" data-f="merge">加入 Claude 的设计（或另一份稿件）</button>
+  ${nCl?`<hr><div class="mh">Claude 的提议：${nCl} 处</div><button class="mi" data-f="adoptAll">全部采纳</button><button class="mi" data-f="rejectAll">全部拒绝（删掉 Claude 加的）</button>`:""}
+  <hr><button class="mi" data-f="new">新建空白稿</button>
+  <div class="mh">版本 ${APP_VER} · 本机：${DEVICE} · 最后导出：${fmtTime(doc.exportedAt)}</div>`);
+  p.addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;closePop();({all:exportAll,doc:exportDoc,png:exportPNG,md:exportMD,one:exportOnePage,open:()=>pickFile("open"),merge:()=>pickFile("merge"),new:newBlank,adoptAll,rejectAll:()=>rejectClaude(null)})[b.dataset.f]()})}
+function adoptAll(){doc.funcs.forEach(f=>f.by="");doc.pages.forEach(p=>{p.by="";p.items.forEach(i=>i.by="")});commit();render();toast("已全部采纳")}
+function rejectClaude(onlyPage){const pages=onlyPage?[onlyPage]:doc.pages.slice();let n=0;
+  pages.forEach(p=>{if(p.by==="claude"&&p.items.every(i=>i.by==="claude")&&(isComp(p)||pagesOfKind("page").length>1)){doc.pages=doc.pages.filter(x=>x!==p);n++;return}
+    const ids=p.items.filter(i=>i.by==="claude"&&i.t!=="line").map(i=>i.id);const before=p.items.length;p.items=p.items.filter(i=>!(i.t==="line"&&i.by==="claude"));if(ids.length)removeItems(ids,p);n+=before-p.items.length;p.by=""});
+  if(!onlyPage){const fids=doc.funcs.filter(f=>f.by==="claude").map(f=>f.id);doc.funcs=doc.funcs.filter(f=>f.by!=="claude");doc.pages.forEach(p=>p.items.forEach(l=>{if(l.calls)l.calls=l.calls.filter(c=>!fids.includes(c))}));n+=fids.length}
+  if(!doc.pages.some(p=>p.id===pageId))pageId=pagesOfKind("page")[0].id;sel=null;focusId=null;commit();render();toast("已拒绝，去掉 "+n+" 处")}
+
+/* ---------- 导出 ---------- */
+function stamp(){const d=new Date(),p=n=>String(n).padStart(2,"0");return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+"-"+p(d.getHours())+p(d.getMinutes())}
+const safeName=s=>String(s||"设计稿").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,40);
+async function saveBlob(blob,name,afterWork){
+  if(afterWork&&isIOS)return new Promise(res=>modal("文件已准备好",esc(name)+"<br>点“保存”后选“存储到文件”或你的云端硬盘。",[{t:"取消",fn:()=>res(false)},{t:"保存",pri:1,fn:async()=>res(await saveBlob(blob,name))}]));
+  const file=new File([blob],name,{type:blob.type||"application/octet-stream"});
+  if(isIOS&&navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});return true}catch(e){if(e&&e.name==="AbortError")return false}}
+  if(window.showSaveFilePicker&&!isIOS){try{const ext=name.slice(name.lastIndexOf("."));const h=await window.showSaveFilePicker({suggestedName:name,types:[{description:"文件",accept:{[blob.type||"application/octet-stream"]:[ext]}}]});const w=await h.createWritable();await w.write(blob);await w.close();return true}catch(e){if(e&&e.name==="AbortError")return false}}
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);return true}
+const docJSON=()=>JSON.stringify(doc,null,1);
+function markExported(){doc.exportedAt=nowISO();scheduleSave()}
+async function exportDoc(){if(await saveBlob(new Blob([docJSON()],{type:"application/json"}),safeName(doc.title)+"_"+stamp()+".pebboard.json")){markExported();toast("稿件文件已导出")}}
+function pageSVG(p){const ls=lsOf(p);let x1=0,y1=-ls*2,x2=p.w,y2=p.h;
+  p.items.forEach(i=>{if(i.t==="line"){if(i.k==="call"||i.bp){const a=p.items.find(x=>x.id===i.a);if(a&&a.t!=="point")x2=Math.max(x2,a.x+a.w+ls*14)}return}const b=i.t==="point"?{x:i.x-ls,y:i.y-ls,w:ls*8,h:ls*2}:i;x1=Math.min(x1,b.x);y1=Math.min(y1,b.y-ls);x2=Math.max(x2,b.x+b.w);y2=Math.max(y2,b.y+b.h)});
+  p.strokes.forEach(s=>{if(!s.pts.length)return;const b=strokeBox(s);x1=Math.min(x1,b.x);y1=Math.min(y1,b.y);x2=Math.max(x2,b.x+b.w);y2=Math.max(y2,b.y+b.h)});
+  if(doc.funcs.length&&!isComp(p)){x2=Math.max(x2,p.w+ls*17);y2=Math.max(y2,doc.funcs.length*ls*2.9)}
+  const pad=ls*2;x1-=pad;y1-=pad;x2+=pad;y2+=pad;const W=x2-x1,H=y2-y1;
+  return{svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x1} ${y1} ${W} ${H}" width="${W}" height="${H}" font-family="-apple-system,'PingFang SC','Microsoft YaHei',sans-serif"><defs>${markerDefs()}</defs><rect x="${x1}" y="${y1}" width="${W}" height="${H}" fill="#EEF1F0"/>${drawPage(p,{exp:true})}</svg>`,W,H}}
+function svgToPNG(svg,W,H){return new Promise((res,rej)=>{const sc=clamp(2400/Math.max(W,H),.5,2);const img=new Image();const url=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml"}));
+  img.onload=()=>{const c=document.createElement("canvas");c.width=Math.round(W*sc);c.height=Math.round(H*sc);const g=c.getContext("2d");g.fillStyle="#EEF1F0";g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(b=>b?res(b):rej(new Error("图片生成失败")),"image/png")};
+  img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error("图片生成失败"))};img.src=url})}
+async function exportPNG(){try{const p=page(),s=pageSVG(p),b=await svgToPNG(s.svg,s.W,s.H);if(await saveBlob(b,safeName(doc.title)+"_"+pageLabel(p)+"_"+safeName(p.name||"")+".png",true))toast("图片已导出")}catch(e){toast(e.message)}}
+function buildMD(){const L=[];L.push("# "+doc.title,"");L.push("- 格式："+FORMAT+" v"+doc.ver+"（程序版本 "+APP_VER+"）","- 最后修改："+fmtTime(doc.savedAt)+"（"+doc.savedOn+"），共修改 "+doc.edits+" 次","- 页面 "+pagesOfKind("page").length+" 个，组件 "+pagesOfKind("comp").length+" 个，功能 "+doc.funcs.length+" 个","");
+  L.push("## 功能库（整份文件共用）","");if(!doc.funcs.length)L.push("（没有）");doc.funcs.forEach((f,i)=>L.push("- **"+LETTER(i)+"** "+(f.name||"（未命名）")+(f.comp?" ｜界面："+pageNo(f.comp):"")+(f.by?" 〔Claude 提议〕":"")+(f.note?"："+f.note.replace(/\n/g," / "):"")));L.push("");
+  doc.pages.forEach(p=>{const N=numbering(p);L.push("## "+pageLabel(p)+" "+(p.name||"（未命名）")+(p.lk?" 〔已锁〕":"")+(p.by?" 〔Claude 提议〕":""),"","- 尺寸："+p.w+"×"+p.h+(p.note?"\n- 说明："+p.note.replace(/\n/g," / "):""),"");
+    const it=p.items,nm=i=>(i.name||"（未命名）"),nt=i=>(i.note?"："+i.note.replace(/\n/g," / "):""),tags=i=>[i.L>1?"层"+i.L:"",i.st?STS[i.st]:"",i.lk?"已锁":"",i.by?"Claude 提议":""].filter(Boolean).map(t=>"〔"+t+"〕").join("");
+    const frames=it.filter(i=>i.t==="frame");L.push("### 框（"+frames.length+"）");if(!frames.length)L.push("（没有）");
+    const walk=(pid,d)=>frames.filter(f=>(f.p||null)===pid).forEach(f=>{L.push("  ".repeat(d)+"- **"+N[f.id]+"** "+nm(f)+tags(f)+(f.ref?" ｜放的是组件 "+pageNo(f.ref):"")+" ["+f.x+","+f.y+" "+f.w+"×"+f.h+"]"+nt(f));walk(f.id,d+1)});walk(null,0);L.push("");
+    const bs=it.filter(i=>i.t==="button");L.push("### 按键（"+bs.length+"）");if(!bs.length)L.push("（没有）");
+    bs.forEach(b=>{const op=it.filter(l=>l.t==="line"&&l.k==="open"&&l.a===b.id).map(l=>l.bp?pageNo(l.bp):N[l.b]),ca=it.filter(l=>l.t==="line"&&l.k==="call"&&l.a===b.id).flatMap(l=>l.calls).map(funcLetter);
+      L.push("- **"+N[b.id]+"** "+nm(b)+tags(b)+(b.p?" 在"+N[b.p]:"")+" ["+b.x+","+b.y+" "+b.w+"×"+b.h+"]"+(op.length?" ｜打开 "+op.join("、"):"")+(ca.length?" ｜调用 "+ca.join("、"):"")+nt(b))});L.push("");
+    const ps=it.filter(i=>i.t==="point");if(ps.length){L.push("### 点（"+ps.length+"）");ps.forEach(t=>L.push("- **"+N[t.id]+"** "+nm(t)+tags(t)+(t.p?" 在"+N[t.p]:"")+" ["+t.x+","+t.y+"]"+nt(t)));L.push("")}
+    ["open","rel","call"].forEach(k=>{const ls=it.filter(l=>l.t==="line"&&l.k===k);if(!ls.length)return;L.push("### "+KN[k]+"（"+ls.length+"）");
+      ls.forEach(l=>L.push("- **"+N[l.id]+"** "+lineDesc(l,N)+(l.k==="rel"&&l.rk?" 〔"+RK[l.rk]+"〕":"")+(l.name?" "+l.name:"")+(l.by?" 〔Claude 提议〕":"")+nt(l)));L.push("")});
+    if(p.strokes.length)L.push("- 手画笔画 "+p.strokes.length+" 笔（只在图片里看得到）","");
+    if(p.logic)L.push("### 逻辑说明","",logicToDisplay(p),"")});
+  return L.join("\n")}
+async function exportMD(){if(await saveBlob(new Blob([buildMD()],{type:"text/markdown"}),safeName(doc.title)+"_文字清单_"+stamp()+".md"))toast("文字清单已导出")}
+const AI_README=`给 AI 的格式说明（PEB 设计板 ${APP_VER}）
+=====================================
+这个包里有：
+- 稿件.pebboard.json：完整数据，可以原样还原。
+- 文字清单.md：同样的内容，写成人能读的样子。
+- 页N_名字.png / 组件N_名字.png：每个页面和组件的图片。
+
+稿件 JSON（format="${FORMAT}", ver=2）
+- funcs[]：功能库 {id,name,note,by,comp}。字母 A、B、C 按数组顺序算，不存。comp=这个功能的界面组件（pages 里 kind="comp" 的 id）。
+- pages[]：{id,kind("page"|"comp"),name,note,scr,w,h,items[],strokes[],by,lk}。坐标原点 = 页面左上角，单位 = 屏幕像素。
+- items[]，t 表示种类：
+  - "frame" 框：{id,t,L(层1-3),x,y,w,h,p,name,note,st,by,lk,ref}。ref=放进来的组件 id（有 ref 的框显示那个组件的内容）。
+  - "button" 按键：{id,t,L,x,y,w,h,p,name,note,st,by,lk}
+  - "point" 点：{id,t,L,x,y,p,name,note,by,lk}
+  - "line" 线：{id,t,k,a,b,bp,calls[],rk,name,note,by,lk}
+    k="open" 开启线：点 a，打开或关上框 b；或跳到页面 bp。被开启线指着的框，试用时一开始是关着的。
+    k="rel"  关系线：a 和 b 的关系，rk = contain(包含)/affect(影响)/cross(跨大区调用)/share(共享知识库)/空。
+    k="call" 调用线：a 调用 calls[] 里的功能 id。
+- p（所在框）由位置自动算，可以不填。编号（框1.2、键3、开1）也自动算，不存。
+- 层2、层3 的最外层框 = 弹出层，试用时一开始关着。
+- gap：整份稿件的标准间距（像素），框之间、框和边之间按这个对齐。
+- st 状态：have 现有 / change 要改 / new 新建 / later 以后 / tbd 未定。
+- strokes[]：手画 {id,L,c,w,pts[x,y,x,y...]}。
+
+Claude 参与设计的规则（用户选“文件 → 加入 Claude 的设计”）
+1. 做法：拿到用户最新导出的稿件，在上面加东西或改东西，导出一份同格式的 JSON。
+2. 加东西：新的东西用新的 id，by 写 "claude"。可以加进已有页面（用已有页面的 id），也可以加新页面、新组件、新功能。
+3. 改东西：保留原来的 id，把 by 写成 "claude"，程序就会用新内容替换。by 不是 "claude" 的已有东西不会被改动。
+4. 不能删用户的东西。想建议删除，就在 note 里写明。
+5. 功能：id 相同时按 3 处理；id 不同但名字相同，算同一个功能。
+6. 加进来的东西显示为紫色虚线。用户可以一个一个“采纳”，也可以全部采纳或全部拒绝。
+
+只设计某一页（最常用）
+- 用户在程序里选“文件 → 导出这一页给 Claude”，得到“这一页.pebboard.json”（onePage=那一页的 id）。空白页就是模板。
+- Claude 在这一页上画：保持 format、ver、这一页的 id、w、h 不变，往 items 里加框、按键、点、线，by 都写 "claude"。
+- 把这份 JSON 交回给用户。用户加入时，可以选：作为新的一页（默认）、替换原来那一页、加到原来那一页。
+- 页面的 logic 是逻辑说明文字。里面的 ⟦id⟧ 表示引用某个东西，程序会显示成【键3 搜索】。
+`;
+/* 只导出当前这一页（加上它用到的功能和组件），给 Claude 设计这一页用 */
+function onePageDoc(p){const used=new Set();p.items.forEach(i=>{if(i.ref)used.add(i.ref)});const comps=doc.pages.filter(x=>used.has(x.id)&&x.id!==p.id);
+  return{format:FORMAT,ver:2,id:doc.id,title:doc.title+" · "+pageLabel(p)+" "+p.name,createdAt:doc.createdAt,savedAt:doc.savedAt,savedOn:doc.savedOn,edits:doc.edits,exportedAt:"",onePage:p.id,funcs:JSON.parse(JSON.stringify(doc.funcs)),pages:JSON.parse(JSON.stringify([p,...comps])),layers:JSON.parse(JSON.stringify(doc.layers))}}
+async function exportOnePage(){toast("正在打包…",4000);try{const p=page(),d=onePageDoc(p),enc=new TextEncoder();const keep=doc;
+  const files=[{name:"这一页.pebboard.json",data:enc.encode(JSON.stringify(d,null,1))}];doc=d;let md;try{md=buildMD()}finally{doc=keep}
+  files.push({name:"文字清单.md",data:enc.encode(md)},{name:"给AI的格式说明.txt",data:enc.encode(AI_README)});const s=pageSVG(p),b=await svgToPNG(s.svg,s.W,s.H);files.push({name:pageLabel(p)+"_"+safeName(p.name||"未命名")+".png",data:new Uint8Array(await b.arrayBuffer())});
+  if(await saveBlob(new Blob([makeZip(files)],{type:"application/zip"}),safeName(doc.title)+"_"+pageLabel(p)+"_给Claude_"+stamp()+".zip",true))toast("这一页已导出，发给 Claude 就行")}catch(e){toast("导出失败："+e.message,3000)}}
+async function exportAll(){toast("正在打包…",4000);try{const files=[];const enc=new TextEncoder();
+  files.push({name:"稿件.pebboard.json",data:enc.encode(docJSON())});files.push({name:"文字清单.md",data:enc.encode(buildMD())});files.push({name:"给AI的格式说明.txt",data:enc.encode(AI_README)});
+  for(const p of doc.pages){const s=pageSVG(p);const b=await svgToPNG(s.svg,s.W,s.H);files.push({name:pageLabel(p)+"_"+safeName(p.name||"未命名")+".png",data:new Uint8Array(await b.arrayBuffer())})}
+  const zip=makeZip(files);if(await saveBlob(new Blob([zip],{type:"application/zip"}),safeName(doc.title)+"_全部_"+stamp()+".zip",true)){markExported();toast("已导出全部："+files.length+" 个文件")}}catch(e){toast("打包失败："+e.message,3000)}}
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u){let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=CRC[(c^u[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0}
+function makeZip(files){const enc=new TextEncoder(),parts=[],central=[];let off=0;const d=new Date(),dt=((d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1))&0xFFFF,dd=(((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF;
+  files.forEach(f=>{const nm=enc.encode(f.name),crc=crc32(f.data),sz=f.data.length;const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);h.setUint16(10,dt,true);h.setUint16(12,dd,true);h.setUint32(14,crc,true);h.setUint32(18,sz,true);h.setUint32(22,sz,true);h.setUint16(26,nm.length,true);h.setUint16(28,0,true);
+    parts.push(new Uint8Array(h.buffer),nm,f.data);const c=new DataView(new ArrayBuffer(46));c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);c.setUint16(12,dt,true);c.setUint16(14,dd,true);c.setUint32(16,crc,true);c.setUint32(20,sz,true);c.setUint32(24,sz,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);central.push(new Uint8Array(c.buffer),nm);off+=30+nm.length+sz});
+  const cs=central.reduce((a,b)=>a+b.length,0),e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+  const all=[...parts,...central,new Uint8Array(e.buffer)],out=new Uint8Array(all.reduce((a,b)=>a+b.length,0));let p=0;all.forEach(a=>{out.set(a,p);p+=a.length});return out}
+function readZipJSON(u){const dv=new DataView(u.buffer,u.byteOffset,u.byteLength),dec=new TextDecoder();let p=0;while(p+30<=u.length&&dv.getUint32(p,true)===0x04034b50){const method=dv.getUint16(p+8,true),csz=dv.getUint32(p+18,true),nl=dv.getUint16(p+26,true),xl=dv.getUint16(p+28,true);const name=dec.decode(u.subarray(p+30,p+30+nl));const start=p+30+nl+xl;
+  if(/\.json$/i.test(name)){if(method!==0)throw new Error("这个 zip 被别的软件重新压缩过，请直接打开里面的 .pebboard.json 文件");return dec.decode(u.subarray(start,start+csz))}p=start+csz}throw new Error("zip 里没有找到稿件文件")}
+
+/* ---------- 打开 / 加入 ---------- */
+let pickMode="open";
+function pickFile(mode){pickMode=mode;const fi=$("#fileIn");fi.value="";fi.click()}
+$("#fileIn").addEventListener("change",async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;try{const u=new Uint8Array(await f.arrayBuffer());let text;
+  if(u[0]===0x50&&u[1]===0x4B)text=readZipJSON(u);else text=new TextDecoder().decode(u);let d;try{d=JSON.parse(text)}catch(_){throw new Error("文件内容读不出来，不是稿件文件")}normalize(d);
+  if(pickMode==="merge")askMerge(d);else openDoc(d)}catch(err){modal("打不开这个文件",esc(err.message),[{t:"知道了",pri:1}])}});
+function resetUI(){Object.keys(views).forEach(k=>delete views[k]);sel=null;linePick=null;focusId=null;tryOpen.clear();tryHist=[];undoStack=[];redoStack=[]}
+function openDoc(d){
+  const go=()=>{doc=d;pageId=pagesOfKind("page")[0].id;resetUI();recomputeAll();lastSnap=snap();store.set("doc",doc);render();toast("已打开：「"+doc.title+"」，最后修改于 "+fmtTime(doc.savedAt)+"（"+doc.savedOn+"）",3000)};
+  if(d.id===doc.id&&new Date(d.savedAt)<new Date(doc.savedAt)&&doc.edits>d.edits){modal("要打开的文件比较旧",`这份文件最后修改于 <b>${fmtTime(d.savedAt)}（${esc(d.savedOn)}）</b>，<br>你现在这份是 <b>${fmtTime(doc.savedAt)}（${esc(doc.savedOn)}）</b>，更新。<br>打开旧文件会盖掉现在的修改。`,[{t:"取消"},{t:"先导出现在这份",fn:async()=>{await exportDoc();go()}},{t:"仍然打开旧文件",pri:1,fn:go}]);return}
+  const unsaved=doc.edits>0&&(!doc.exportedAt||new Date(doc.exportedAt)<new Date(doc.savedAt));
+  if(d.id!==doc.id&&unsaved){modal("打开另一份稿件",`现在这份「${esc(doc.title)}」有还没导出的修改。打开新文件会替换它。`,[{t:"取消"},{t:"先导出现在这份",fn:async()=>{await exportDoc();go()}},{t:"直接打开",pri:1,fn:go}]);return}
+  go()}
+/* 加入时，如果文件里的页面和你现有的页面是同一页，先问你怎么放 */
+function askMerge(d){const same=d.pages.filter(p=>doc.pages.some(x=>x.id===p.id));if(!same.length){mergeDoc(d,"into");return}
+  const names=same.map(p=>esc(pageNo(p.id)+" "+(doc.pages.find(x=>x.id===p.id).name||""))).join("、");
+  modal("加入 Claude 的设计","文件里的 <b>"+names+"</b> 就是你现有的那一页。要怎么放？<br>· 作为新的一页：原来那页不动，多一页，最稳妥<br>· 替换原来那一页：原来那页的内容换成文件里的（可以撤销）<br>· 加到原来那一页：只把新东西加进去",[{t:"取消"},{t:"加到原来那一页",fn:()=>mergeDoc(d,"into")},{t:"替换原来那一页",fn:()=>mergeDoc(d,"replace")},{t:"作为新的一页",pri:1,fn:()=>mergeDoc(d,"new")}])}
+/* 加入：按《给AI的格式说明》里的规则合并，不会删掉或改动你没让改的东西 */
+function mergeDoc(d,mode){mode=mode||"into";const allIds=new Set();doc.pages.forEach(p=>{allIds.add(p.id);p.items.forEach(i=>allIds.add(i.id))});doc.funcs.forEach(f=>allIds.add(f.id));
+  const fmap={},pmap={};let addPages=0,addItems=0,changed=0;
+  d.funcs.forEach(f=>{const same=doc.funcs.find(x=>x.id===f.id)||doc.funcs.find(x=>x.name&&x.name===f.name);
+    if(same){fmap[f.id]=same.id;if(f.by==="claude"){same.name=f.name;same.note=f.note;if(f.comp)same.comp=f.comp;same.by="claude";changed++}}
+    else{const nf={...f,id:allIds.has(f.id)?uid():f.id};doc.funcs.push(nf);fmap[f.id]=nf.id;addItems++}});
+  if(mode==="replace")d.pages.forEach(p=>{const ex=doc.pages.find(x=>x.id===p.id);if(ex&&!isComp(ex)){ex.items=[];ex.strokes=[];ex.w=p.w;ex.h=p.h;ex.scr=p.scr;ex.logic=p.logic||ex.logic;ex.name=p.name||ex.name;ex.note=p.note||ex.note;allIds.clear();doc.pages.forEach(q=>{allIds.add(q.id);q.items.forEach(i=>allIds.add(i.id))});doc.funcs.forEach(f=>allIds.add(f.id));p.items.forEach(i=>{if(!i.by)i.by="claude"})}});
+  d.pages.forEach(p=>{const ex=doc.pages.some(x=>x.id===p.id);if(!ex||(mode==="new"&&!isComp(p)))pmap[p.id]=allIds.has(p.id)?uid():p.id;else pmap[p.id]=p.id});
+  const fixRefs=c=>{if(c.t==="line"){c.calls=(c.calls||[]).map(x=>fmap[x]).filter(Boolean);if(c.bp)c.bp=pmap[c.bp]||(doc.pages.some(x=>x.id===c.bp)?c.bp:null)}if(c.ref)c.ref=pmap[c.ref]||c.ref;return c};
+  d.pages.forEach(p=>{const ex=pmap[p.id]===p.id?doc.pages.find(x=>x.id===p.id):null;
+    if(ex){if(p.logic&&mode==="into"&&p.logic!==ex.logic)ex.logic=ex.logic?ex.logic+"\n\n—— Claude 的解读 ——\n"+p.logic:p.logic; // 已有页面：加新东西，改 by=claude 的东西
+      if(p.by==="claude"){ex.name=p.name;ex.note=p.note;ex.by="claude";changed++}
+      const imap={};p.items.forEach(i=>{imap[i.id]=ex.items.some(x=>x.id===i.id)?i.id:(allIds.has(i.id)?uid():i.id)});
+      p.items.forEach(i=>{const c=fixRefs({...i,id:imap[i.id]});if(c.t==="line"){c.a=imap[c.a]||c.a;if(c.b)c.b=imap[c.b]||c.b}
+        const old=ex.items.find(x=>x.id===c.id);if(old){if(i.by==="claude"){Object.assign(old,c,{by:"claude"});changed++}}else{c.by=c.by||"claude";ex.items.push(c);addItems++}});
+      p.strokes.forEach(s=>{if(!ex.strokes.some(x=>x.id===s.id)){ex.strokes.push({...s,id:allIds.has(s.id)?uid():s.id});addItems++}});
+      const ids=new Set(ex.items.filter(i=>i.t!=="line").map(i=>i.id));ex.items=ex.items.filter(i=>i.t!=="line"||(ids.has(i.a)&&(i.k==="call"||ids.has(i.b)||i.bp)));recomputeParents(ex)}
+    else{const imap={};p.items.forEach(i=>imap[i.id]=allIds.has(i.id)?uid():i.id);
+      const np={...p,id:pmap[p.id],by:p.by||"claude",logic:(p.logic||"").replace(/⟦([^⟧]+)⟧/g,(m,id)=>"⟦"+(imap[id]||id)+"⟧"),items:p.items.map(i=>{const c=fixRefs({...i,id:imap[i.id]});if(c.p)c.p=imap[c.p]||null;if(c.t==="line"){c.a=imap[c.a];c.b=c.b?imap[c.b]:null}return c}),strokes:p.strokes.map(s=>({...s,id:uid(),p:null}))};
+      doc.pages.push(np);recomputeParents(np);addPages++}});
+  const firstNew=d.pages.map(p=>pmap[p.id]).find(id=>doc.pages.some(x=>x.id===id&&!isComp(x)));if(firstNew)pageId=firstNew;
+  sel=null;focusId=null;commit();render();toast("已加入："+(addPages?"新页面/组件 "+addPages+" 个，":"")+"新东西 "+addItems+" 样，修改 "+changed+" 处。紫色虚线的就是",3500)}
+function recomputeAll(){doc.pages.forEach(p=>recomputeParents(p))}
+function newBlank(){modal("新建空白稿","现在这份稿件会被替换。还没导出的话，建议先导出。",[{t:"取消"},{t:"先导出",fn:async()=>{await exportDoc();openDoc(newDoc())}},{t:"新建",pri:1,fn:()=>{doc=newDoc();pageId=doc.pages[0].id;resetUI();lastSnap=snap();store.set("doc",doc);render()}}])}
+
+/* ---------- 启动 ---------- */
+(async function boot(){
+  await store.open();
+  const saved=await store.get("doc");if(saved){try{doc=normalize(saved)}catch(e){}}
+  const ui=await store.get("ui");pageId=pagesOfKind("page")[0].id;if(ui){if(doc.pages.some(p=>p.id===ui.pageId))pageId=ui.pageId;curLayer=ui.curLayer||1;if(ui.snapOn!=null)snapOn=ui.snapOn;if(ui.gridOn!=null)gridOn=ui.gridOn}
+  recomputeAll();lastSnap=snap();render();$("#saved").textContent=saved?"已读取上次的稿件":"新稿件";
+  new ResizeObserver(()=>applyView()).observe(cv);
+  window.addEventListener("orientationchange",()=>setTimeout(()=>{fitView();applyView()},300));
+  if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol)){navigator.serviceWorker.register("sw.js").catch(()=>{})}
+})();
+window.__peb={get doc(){return doc},get pageId(){return pageId},get focusId(){return focusId},get tryOpen(){return tryOpen},numbering,buildMD,openDoc,mergeDoc,makeZip,readZipJSON,normalize,render,enterFocus,exitFocus};
+</script>
+</body>
+</html>
